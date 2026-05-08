@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/logo.png" width="140" alt="yande-dl logo" />
+  <img src="docs/logo.svg" width="140" alt="yande-dl logo" />
 
   <h1>yande-dl</h1>
 
