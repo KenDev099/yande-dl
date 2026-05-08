@@ -1,0 +1,38 @@
+[package]
+name = "yande-dl-tauri"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Tauri shell for yande-dl"
+
+[[bin]]
+name = "yande-dl"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+yande-dl-core = { path = "../yande-dl-core" }
+yande-dl-providers = { path = "../yande-dl-providers" }
+yande-dl-config = { path = "../yande-dl-config" }
+
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+reqwest = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

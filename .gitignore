@@ -1,0 +1,54 @@
+# Rust
+target/
+**/*.rs.bk
+*.pdb
+
+# Tauri
+crates/yande-dl-tauri/target/
+crates/yande-dl-tauri/gen/
+
+# Node / Frontend
+node_modules/
+ui/dist/
+ui/dist-ssr/
+ui/.vite/
+ui/coverage/
+*.log
+*.tsbuildinfo
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor / IDE
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.iml
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local data
+*.local
+.env
+.env.local
+.env.*.local
+
+# Test artifacts
+crates/**/test_output/
+
+# Build artifacts (Tauri)
+*.dmg
+*.app
+*.exe
+*.msi
+*.AppImage
+*.deb
+*.rpm
+
+CLAUDE.md

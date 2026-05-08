@@ -1,0 +1,14 @@
+{
+  "name": "yande-dl",
+  "private": true,
+  "version": "0.1.0",
+  "description": "monorepo entry — runs tauri CLI from the workspace root so it can find crates/yande-dl-tauri/tauri.conf.json",
+  "scripts": {
+    "dev": "ui/node_modules/.bin/tauri dev",
+    "build": "ui/node_modules/.bin/tauri build",
+    "tauri": "ui/node_modules/.bin/tauri",
+    "ui:install": "pnpm install --dir ui",
+    "ui:typecheck": "pnpm --dir ui typecheck",
+    "ui:build": "pnpm --dir ui build"
+  }
+}

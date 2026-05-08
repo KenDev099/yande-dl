@@ -1,0 +1,137 @@
+{
+  "common": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "saving": "Saving…",
+    "loading": "Loading…",
+    "add": "Add",
+    "remove": "Remove",
+    "browse": "Browse",
+    "version": "Version",
+    "language": "Language",
+    "languageHint": "Takes effect immediately.",
+    "languageSystem": "Follow system",
+    "languageEn": "English",
+    "languageZhTW": "繁體中文",
+    "languageZhCN": "简体中文"
+  },
+  "sidebar": {
+    "subscriptions": "Subscriptions",
+    "settings": "Settings"
+  },
+  "subscriptions": {
+    "title": "Subscriptions",
+    "description": "Tags you watch. Click download to fetch every matching post.",
+    "emptyTitle": "No subscriptions yet",
+    "emptyHint": "Click \"New subscription\" to start watching a tag.",
+    "newButton": "New subscription",
+    "cardUpdate": "Update",
+    "cardUpdateTooltip": "Fetch only posts newer than the last run",
+    "cardDownload": "Download",
+    "cardOpenFolder": "Open folder",
+    "cardRefetch": "Re-fetch the entire backlog",
+    "cardRemove": "Remove subscription",
+    "cardDownloaded": "{{count}} downloaded",
+    "cardLastRunNever": "last run never",
+    "cardLastRun": "last run {{time}}",
+    "removeConfirm": "Remove subscription \"{{tag}}\"? Files on disk are kept.",
+    "toastRemoved": "Removed {{tag}}",
+    "toastStartingFull": "Started full download of {{tag}}",
+    "toastStartingUpdate": "Checking {{tag}} for new posts",
+    "toastErrorStart": "Could not start: {{error}}",
+    "toastErrorOpenFolder": "Could not open folder: {{error}}",
+    "toastErrorRemove": "Could not remove: {{error}}"
+  },
+  "addDialog": {
+    "title": "New subscription",
+    "description": "yande-dl will fetch every matching post for this tag.",
+    "source": "Source",
+    "tag": "Tag",
+    "tagPlaceholder": "e.g. stella_sora",
+    "tagHint": "Use lowercase, underscores for spaces. Tag is case-insensitive.",
+    "submitting": "Adding…",
+    "toastAdded": "Subscribed to {{tag}}",
+    "toastError": "Could not add subscription: {{error}}"
+  },
+  "firstRun": {
+    "title": "Welcome to yande-dl",
+    "description": "yande-dl is a batch downloader for Yande.re and Konachan. Boards host both SFW and NSFW content posted by users. Pick your defaults to get started.",
+    "downloadFolder": "Download folder",
+    "chooseFolder": "Choose a folder…",
+    "rating": "Default rating",
+    "ratingSafe": "Safe only (recommended)",
+    "ratingSafeQuestionable": "Safe + Questionable",
+    "ratingAll": "All (including Explicit)",
+    "warning": "I am 18 or older, or I'm only downloading safe content, and I accept that I am responsible for complying with local laws and source-site terms.",
+    "confirm": "I understand",
+    "submit": "Get started"
+  },
+  "settings": {
+    "title": "Settings",
+    "description": "Stored as plain JSON in your OS app data folder.",
+    "sectionDownload": "Download",
+    "sectionContent": "Content",
+    "sectionAppearance": "Appearance",
+    "sectionAbout": "About",
+    "downloadFolder": "Download folder",
+    "noFolder": "No folder selected",
+    "filenameHint": "Files are saved as",
+    "concurrency": "Concurrency: {{n}}",
+    "concurrencyHint": "Max simultaneous downloads. Be polite.",
+    "minDelay": "Min delay between requests: {{n}} ms",
+    "ratingFilter": "Default rating filter",
+    "ratingHint": "Posts whose rating is not in this set are not fetched.",
+    "blacklist": "Tag blacklist",
+    "openDownloadFolder": "Open download folder",
+    "reset": "Reset",
+    "saveChanges": "Save changes",
+    "toastSaved": "Settings saved",
+    "toastError": "Save failed: {{error}}"
+  },
+  "rating": {
+    "safe": "Safe",
+    "questionable": "Questionable",
+    "explicit": "Explicit"
+  },
+  "blacklistEditor": {
+    "placeholder": "add tag, e.g. loli",
+    "empty": "No blacklist entries. Posts containing any matching tag will be skipped during download.",
+    "removeAriaLabel": "remove {{tag}}"
+  },
+  "importExport": {
+    "exportButton": "Export",
+    "importButton": "Import",
+    "title": "Import subscriptions",
+    "description": "Load a previously exported tags.json file.",
+    "file": "File",
+    "chooseFile": "Choose tags.json…",
+    "mode": "Mode",
+    "modeMerge": "Merge — keep existing, add new (recommended)",
+    "modeReplace": "Replace — remove existing, then add imported",
+    "submit": "Import",
+    "toastExported": "Exported to {{path}}",
+    "toastExportFailed": "Export failed: {{error}}",
+    "toastImported": "Import complete — {{summary}}",
+    "toastImportFailed": "Import failed: {{error}}",
+    "summaryAddedSkipped": "+{{added}} added · {{skipped}} skipped",
+    "summaryRemoved": " · {{removed}} removed"
+  },
+  "activeJobs": {
+    "drawerTitle": "Active downloads",
+    "drawerCount_one": "{{count}} job running",
+    "drawerCount_other": "{{count}} jobs running",
+    "trigger": "{{count}} downloading",
+    "progressLabel": "page {{page}} · {{saved}} saved · {{skipped}} skipped",
+    "progressLabelFailed": "page {{page}} · {{saved}} saved · {{skipped}} skipped · {{failed}} failed",
+    "cancel": "Cancel download"
+  },
+  "downloadResult": {
+    "cancelled": "Download cancelled",
+    "summaryClean": "+{{saved}} saved · {{skipped}} skipped",
+    "summaryWithFailures": "+{{saved}} saved · {{skipped}} skipped · {{failed}} failed",
+    "finished": "Download finished — {{summary}}"
+  },
+  "providers": {
+    "konachanHint": "(Konachan: NSFW-leaning, slower)"
+  }
+}

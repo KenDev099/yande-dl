@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "yande-dl",
+  "version": "0.1.0",
+  "identifier": "dev.kura.yande-dl",
+  "build": {
+    "frontendDist": "../../ui/dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "pnpm --dir ui dev",
+    "beforeBuildCommand": "pnpm --dir ui build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "yande-dl",
+        "label": "main",
+        "width": 1100,
+        "height": 720,
+        "minWidth": 960,
+        "minHeight": 540,
+        "decorations": true,
+        "transparent": false,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "Utility",
+    "shortDescription": "Lean image board subscription downloader",
+    "longDescription": "yande-dl is a modern, lean image board subscription downloader for Yande.re and Konachan."
+  }
+}

@@ -1,0 +1,137 @@
+{
+  "common": {
+    "cancel": "取消",
+    "save": "保存",
+    "saving": "保存中…",
+    "loading": "加载中…",
+    "add": "添加",
+    "remove": "移除",
+    "browse": "浏览",
+    "version": "版本",
+    "language": "语言",
+    "languageHint": "立即生效。",
+    "languageSystem": "跟随系统",
+    "languageEn": "English",
+    "languageZhTW": "繁體中文",
+    "languageZhCN": "简体中文"
+  },
+  "sidebar": {
+    "subscriptions": "订阅",
+    "settings": "设置"
+  },
+  "subscriptions": {
+    "title": "订阅",
+    "description": "你关注的标签,点击下载即可抓取所有匹配的图片。",
+    "emptyTitle": "暂无订阅",
+    "emptyHint": "点击右上「新建订阅」开始关注一个标签。",
+    "newButton": "新建订阅",
+    "cardUpdate": "更新",
+    "cardUpdateTooltip": "只抓取比上次新的图片",
+    "cardDownload": "下载",
+    "cardOpenFolder": "打开文件夹",
+    "cardRefetch": "重新抓取全部",
+    "cardRemove": "移除订阅",
+    "cardDownloaded": "已下载 {{count}} 张",
+    "cardLastRunNever": "从未运行",
+    "cardLastRun": "上次运行 {{time}}",
+    "removeConfirm": "确定移除订阅“{{tag}}”吗?磁盘上的文件会保留。",
+    "toastRemoved": "已移除 {{tag}}",
+    "toastStartingFull": "开始下载 {{tag}} 全部图片",
+    "toastStartingUpdate": "检查 {{tag}} 是否有新图片",
+    "toastErrorStart": "无法启动下载:{{error}}",
+    "toastErrorOpenFolder": "无法打开文件夹:{{error}}",
+    "toastErrorRemove": "无法移除:{{error}}"
+  },
+  "addDialog": {
+    "title": "新建订阅",
+    "description": "yande-dl 会抓取所有匹配此标签的图片。",
+    "source": "来源",
+    "tag": "标签",
+    "tagPlaceholder": "例:stella_sora",
+    "tagHint": "请使用小写字母,空格用下划线。标签不区分大小写。",
+    "submitting": "添加中…",
+    "toastAdded": "已订阅 {{tag}}",
+    "toastError": "无法添加订阅:{{error}}"
+  },
+  "firstRun": {
+    "title": "欢迎使用 yande-dl",
+    "description": "yande-dl 是 Yande.re 与 Konachan 的批量下载工具。图板上有用户贡献的 SFW(safe)和 NSFW(questionable / explicit)内容。请先设置默认值。",
+    "downloadFolder": "下载文件夹",
+    "chooseFolder": "选择文件夹…",
+    "rating": "默认分级",
+    "ratingSafe": "仅 Safe(推荐)",
+    "ratingSafeQuestionable": "Safe + Questionable",
+    "ratingAll": "全部(含 Explicit)",
+    "warning": "我已年满 18 岁,或我只下载 safe 内容,我了解并自负法律责任,遵守来源站点条款。",
+    "confirm": "我已了解",
+    "submit": "开始使用"
+  },
+  "settings": {
+    "title": "设置",
+    "description": "以纯 JSON 形式保存在系统的 app data 文件夹中。",
+    "sectionDownload": "下载",
+    "sectionContent": "内容",
+    "sectionAppearance": "外观",
+    "sectionAbout": "关于",
+    "downloadFolder": "下载文件夹",
+    "noFolder": "未选择文件夹",
+    "filenameHint": "文件保存为",
+    "concurrency": "并发数:{{n}}",
+    "concurrencyHint": "同时进行的下载数量上限。请保持礼貌。",
+    "minDelay": "请求最小间隔:{{n}} 毫秒",
+    "ratingFilter": "默认分级过滤",
+    "ratingHint": "不在此集合内的分级不会被抓取。",
+    "blacklist": "标签黑名单",
+    "openDownloadFolder": "打开下载文件夹",
+    "reset": "还原",
+    "saveChanges": "保存更改",
+    "toastSaved": "设置已保存",
+    "toastError": "保存失败:{{error}}"
+  },
+  "rating": {
+    "safe": "Safe",
+    "questionable": "Questionable",
+    "explicit": "Explicit"
+  },
+  "blacklistEditor": {
+    "placeholder": "添加标签,例:loli",
+    "empty": "目前没有黑名单。下载时若 post 含有匹配的标签将被跳过。",
+    "removeAriaLabel": "移除 {{tag}}"
+  },
+  "importExport": {
+    "exportButton": "导出",
+    "importButton": "导入",
+    "title": "导入订阅",
+    "description": "加载之前导出的 tags.json 文件。",
+    "file": "文件",
+    "chooseFile": "选择 tags.json…",
+    "mode": "模式",
+    "modeMerge": "合并 — 保留已有,加入新项目(推荐)",
+    "modeReplace": "替换 — 清空已有,改用导入内容",
+    "submit": "导入",
+    "toastExported": "已导出至 {{path}}",
+    "toastExportFailed": "导出失败:{{error}}",
+    "toastImported": "导入完成 — {{summary}}",
+    "toastImportFailed": "导入失败:{{error}}",
+    "summaryAddedSkipped": "新增 {{added}} 项 · 跳过 {{skipped}} 项",
+    "summaryRemoved": " · 移除 {{removed}} 项"
+  },
+  "activeJobs": {
+    "drawerTitle": "进行中的下载",
+    "drawerCount_one": "{{count}} 个任务进行中",
+    "drawerCount_other": "{{count}} 个任务进行中",
+    "trigger": "{{count}} 个下载中",
+    "progressLabel": "第 {{page}} 页 · 已存 {{saved}} · 跳过 {{skipped}}",
+    "progressLabelFailed": "第 {{page}} 页 · 已存 {{saved}} · 跳过 {{skipped}} · 失败 {{failed}}",
+    "cancel": "取消下载"
+  },
+  "downloadResult": {
+    "cancelled": "下载已取消",
+    "summaryClean": "新增 {{saved}} 张 · 跳过 {{skipped}} 张",
+    "summaryWithFailures": "新增 {{saved}} 张 · 跳过 {{skipped}} 张 · 失败 {{failed}} 张",
+    "finished": "下载完成 — {{summary}}"
+  },
+  "providers": {
+    "konachanHint": "(Konachan:偏 NSFW、响应较慢)"
+  }
+}

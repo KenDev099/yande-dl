@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 5%;
+    --foreground: 0 0% 95%;
+    --surface: 0 0% 8%;
+    --surface-2: 0 0% 12%;
+    --border: 0 0% 18%;
+    --muted: 0 0% 60%;
+    --accent: 180 80% 55%;
+    --accent-fg: 0 0% 5%;
+    --danger: 0 75% 60%;
+    --warning: 35 90% 60%;
+    --radius: 0.5rem;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: "Inter", system-ui, sans-serif;
+    font-feature-settings: "ss01", "cv11";
+  }
+
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 4px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted));
+  }
+
+  code,
+  .mono {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+  }
+}

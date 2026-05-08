@@ -1,0 +1,21 @@
+[package]
+name = "yande-dl-providers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Image board providers for yande-dl (Moebooru: Yande.re, Konachan)"
+
+[dependencies]
+yande-dl-core = { path = "../yande-dl-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+wiremock = "0.6"
+tokio = { workspace = true, features = ["test-util"] }
