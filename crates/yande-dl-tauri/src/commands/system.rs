@@ -30,6 +30,16 @@ pub async fn open_folder(
 }
 
 #[tauri::command]
+pub async fn open_url(app: AppHandle, url: String) -> Result<(), String> {
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("only http(s) URLs are allowed".into());
+    }
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn open_post_url(
     app: AppHandle,
     state: State<'_, AppState>,

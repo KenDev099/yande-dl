@@ -14,6 +14,10 @@ pub struct Subscription {
     pub tag: String,
     /// `normalize_tag(tag)`. Used for folder names and dedup keying.
     pub normalized_tag: String,
+    /// Optional user-defined alias (e.g. Chinese name). Shown as primary label
+    /// when set; falls back to `tag` otherwise.
+    #[serde(default)]
+    pub display_name: Option<String>,
     pub last_run_at: Option<i64>,
     pub last_seen_post_id: i64,
     pub total_downloaded: u64,
@@ -22,18 +26,34 @@ pub struct Subscription {
 
 impl Subscription {
     pub fn new(provider: &str, raw_tag: &str) -> Self {
+        Self::new_with_display_name(provider, raw_tag, None)
+    }
+
+    pub fn new_with_display_name(
+        provider: &str,
+        raw_tag: &str,
+        display_name: Option<String>,
+    ) -> Self {
         let normalized = yande_dl_core::sanitize::normalize_tag(raw_tag);
         Self {
             id: Uuid::new_v4().to_string(),
             provider: provider.into(),
             tag: raw_tag.trim().to_string(),
             normalized_tag: normalized,
+            display_name: normalize_display_name(display_name),
             last_run_at: None,
             last_seen_post_id: 0,
             total_downloaded: 0,
             created_at: chrono::Utc::now().timestamp(),
         }
     }
+}
+
+/// Trim + collapse-to-None on empty so the on-disk form is consistent.
+fn normalize_display_name(input: Option<String>) -> Option<String> {
+    input
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,6 +125,19 @@ impl TagsStore {
     }
 
     pub async fn add(&self, provider: &str, raw_tag: &str) -> Result<Subscription> {
+        self.add_with_display_name(provider, raw_tag, None).await
+    }
+
+    /// Add with an optional display name. If a subscription for this
+    /// (provider, normalized_tag) already exists, the existing one is returned
+    /// unchanged — the display name is NOT overwritten on dedup hits. Use
+    /// `update_display_name` to rename.
+    pub async fn add_with_display_name(
+        &self,
+        provider: &str,
+        raw_tag: &str,
+        display_name: Option<String>,
+    ) -> Result<Subscription> {
         if raw_tag.trim().is_empty() {
             bail!("tag must not be empty");
         }
@@ -119,10 +152,29 @@ impl TagsStore {
             return Ok(existing.clone());
         }
 
-        let sub = Subscription::new(provider, raw_tag);
+        let sub = Subscription::new_with_display_name(provider, raw_tag, display_name);
         file.subscriptions.push(sub.clone());
         self.save(&file).await?;
         Ok(sub)
+    }
+
+    /// Set or clear the display name for a subscription. Passing `None` (or
+    /// an empty/whitespace string) clears the alias.
+    pub async fn update_display_name(
+        &self,
+        id: &str,
+        display_name: Option<String>,
+    ) -> Result<Option<Subscription>> {
+        let mut file = self.load().await?;
+        let normalized = normalize_display_name(display_name);
+        if let Some(s) = file.subscriptions.iter_mut().find(|s| s.id == id) {
+            s.display_name = normalized;
+            let updated = s.clone();
+            self.save(&file).await?;
+            Ok(Some(updated))
+        } else {
+            Ok(None)
+        }
     }
 
     pub async fn remove(&self, id: &str) -> Result<bool> {
@@ -134,6 +186,23 @@ impl TagsStore {
             self.save(&file).await?;
         }
         Ok(removed)
+    }
+
+    /// Increment `total_downloaded` by `delta` without touching baseline.
+    /// Used by "download selected posts" — those downloads are non-linear
+    /// (user picks specific post_ids), so the incremental baseline must
+    /// not move (would break invariant #3).
+    pub async fn bump_downloaded_count(&self, id: &str, delta: u64) -> Result<()> {
+        if delta == 0 {
+            return Ok(());
+        }
+        let mut file = self.load().await?;
+        if let Some(s) = file.subscriptions.iter_mut().find(|s| s.id == id) {
+            s.total_downloaded += delta;
+            s.last_run_at = Some(chrono::Utc::now().timestamp());
+            self.save(&file).await?;
+        }
+        Ok(())
     }
 
     /// Update post-run bookkeeping. `safe_last_post_id` only ever advances
@@ -404,5 +473,143 @@ mod tests {
         assert!(raw.contains("totalDownloaded"));
         assert!(raw.contains("createdAt"));
         assert!(!raw.contains("normalized_tag"));
+    }
+
+    #[tokio::test]
+    async fn add_with_display_name_persists_alias() {
+        let dir = TempDir::new().unwrap();
+        let s = store(&dir);
+
+        let sub = s
+            .add_with_display_name("yande", "cirno", Some("琪露諾".into()))
+            .await
+            .unwrap();
+        assert_eq!(sub.display_name.as_deref(), Some("琪露諾"));
+
+        let reload = s.load().await.unwrap();
+        assert_eq!(
+            reload.subscriptions[0].display_name.as_deref(),
+            Some("琪露諾")
+        );
+    }
+
+    #[tokio::test]
+    async fn add_with_display_name_trims_and_drops_empty() {
+        let dir = TempDir::new().unwrap();
+        let s = store(&dir);
+
+        let a = s
+            .add_with_display_name("yande", "foo", Some("  ".into()))
+            .await
+            .unwrap();
+        assert!(a.display_name.is_none());
+
+        let b = s
+            .add_with_display_name("yande", "bar", Some("  名字  ".into()))
+            .await
+            .unwrap();
+        assert_eq!(b.display_name.as_deref(), Some("名字"));
+    }
+
+    #[tokio::test]
+    async fn update_display_name_sets_and_clears() {
+        let dir = TempDir::new().unwrap();
+        let s = store(&dir);
+
+        let sub = s.add("yande", "foo").await.unwrap();
+        assert!(sub.display_name.is_none());
+
+        let updated = s
+            .update_display_name(&sub.id, Some("中文名".into()))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(updated.display_name.as_deref(), Some("中文名"));
+
+        let cleared = s.update_display_name(&sub.id, None).await.unwrap().unwrap();
+        assert!(cleared.display_name.is_none());
+    }
+
+    #[tokio::test]
+    async fn update_display_name_returns_none_for_unknown_id() {
+        let dir = TempDir::new().unwrap();
+        let s = store(&dir);
+        let result = s
+            .update_display_name("does-not-exist", Some("x".into()))
+            .await
+            .unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn loads_legacy_file_without_display_name_field() {
+        // Simulate a v0.1 tags.json that pre-dates the displayName field.
+        let dir = TempDir::new().unwrap();
+        let s = store(&dir);
+        let legacy = r#"{
+            "version": 1,
+            "subscriptions": [{
+                "id": "abc",
+                "provider": "yande",
+                "tag": "foo",
+                "normalizedTag": "foo",
+                "lastRunAt": null,
+                "lastSeenPostId": 0,
+                "totalDownloaded": 0,
+                "createdAt": 1700000000
+            }]
+        }"#;
+        tokio::fs::write(&s.path, legacy).await.unwrap();
+
+        let f = s.load().await.unwrap();
+        assert_eq!(f.subscriptions.len(), 1);
+        assert!(f.subscriptions[0].display_name.is_none());
+        assert_eq!(f.subscriptions[0].tag, "foo");
+    }
+
+    #[tokio::test]
+    async fn bump_downloaded_count_does_not_touch_baseline() {
+        let dir = TempDir::new().unwrap();
+        let s = store(&dir);
+
+        let sub = s.add("yande", "foo").await.unwrap();
+        s.update_after_run(&sub.id, 100, 3).await.unwrap();
+        s.bump_downloaded_count(&sub.id, 4).await.unwrap();
+
+        let f = s.load().await.unwrap();
+        let got = &f.subscriptions[0];
+        assert_eq!(got.last_seen_post_id, 100); // unchanged
+        assert_eq!(got.total_downloaded, 7);
+        assert!(got.last_run_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn bump_downloaded_count_zero_is_noop() {
+        let dir = TempDir::new().unwrap();
+        let s = store(&dir);
+        let sub = s.add("yande", "foo").await.unwrap();
+        s.bump_downloaded_count(&sub.id, 0).await.unwrap();
+        let f = s.load().await.unwrap();
+        assert_eq!(f.subscriptions[0].total_downloaded, 0);
+        assert!(f.subscriptions[0].last_run_at.is_none());
+    }
+
+    #[tokio::test]
+    async fn add_with_existing_normalized_tag_keeps_original_display_name() {
+        let dir = TempDir::new().unwrap();
+        let s = store(&dir);
+
+        let first = s
+            .add_with_display_name("yande", "cirno", Some("琪露諾".into()))
+            .await
+            .unwrap();
+        // Try to re-add with a different alias — should hit dedup and return
+        // the original unchanged.
+        let second = s
+            .add_with_display_name("yande", "Cirno", Some("changed".into()))
+            .await
+            .unwrap();
+        assert_eq!(first.id, second.id);
+        assert_eq!(second.display_name.as_deref(), Some("琪露諾"));
     }
 }

@@ -17,7 +17,9 @@
   },
   "sidebar": {
     "subscriptions": "訂閱",
-    "settings": "設定"
+    "settings": "設定",
+    "tagsHeading": "標籤",
+    "tagsEmpty": "尚未訂閱"
   },
   "subscriptions": {
     "title": "訂閱",
@@ -30,6 +32,7 @@
     "cardDownload": "下載",
     "cardOpenFolder": "開啟資料夾",
     "cardRefetch": "重新抓取全部",
+    "cardRename": "重新命名",
     "cardRemove": "移除訂閱",
     "cardDownloaded": "已下載 {{count}} 張",
     "cardLastRunNever": "從未執行",
@@ -49,9 +52,57 @@
     "tag": "標籤",
     "tagPlaceholder": "例:stella_sora",
     "tagHint": "請使用小寫字母,空格用底線。標籤不分大小寫。",
+    "displayNameLabel": "別名(選填)",
+    "displayNamePlaceholder": "例:琪露諾",
+    "displayNameHint": "在側欄與卡片上顯示的友善名稱。可隨時修改。",
     "submitting": "新增中…",
     "toastAdded": "已訂閱 {{tag}}",
     "toastError": "無法新增訂閱:{{error}}"
+  },
+  "rename": {
+    "title": "重新命名",
+    "description": "設定別名(例如中文名)。清空則顯示原 tag。",
+    "label": "別名",
+    "placeholder": "例:琪露諾",
+    "submit": "儲存",
+    "toastUpdated": "已更新名稱",
+    "toastError": "無法更新名稱:{{error}}"
+  },
+  "tagDetail": {
+    "notFound": "找不到此訂閱",
+    "emptyTitle": "尚無圖片預覽",
+    "emptyHint": "點上方「預覽」可在不下載的情況下看到縮圖;按「下載」或「更新」則開始抓取。",
+    "currentJobLabel": "目前 {{count}} 張",
+    "preview": "預覽",
+    "previewTooltip": "向 API 抓一頁縮圖,不下載原檔",
+    "previewLoading": "預覽中…",
+    "previewError": "預覽失敗:{{error}}",
+    "loadMore": "載入第 {{next}} 頁",
+    "selectionCount": "已選 {{count}} 張",
+    "downloadSelected": "下載選取 ({{count}})",
+    "downloadSelectedLoading": "啟動中…",
+    "clearSelection": "清除選取",
+    "toastStartingSelected": "開始下載已選的 {{count}} 張",
+    "toastErrorSelected": "下載失敗:{{error}}"
+  },
+  "preview": {
+    "cacheMiss": "預覽資料已過期,請重新按「預覽」"
+  },
+  "postMenu": {
+    "openOriginal": "開啟原圖",
+    "copyOriginalUrl": "複製原圖網址",
+    "openPostPage": "開啟貼文頁面",
+    "copyPostId": "複製貼文 ID",
+    "clipboardCopied": "已複製",
+    "clipboardError": "複製失敗:{{error}}"
+  },
+  "postStatus": {
+    "queued": "排隊",
+    "downloading": "下載中",
+    "saved": "完成",
+    "skipped": "已存在",
+    "failed": "失敗",
+    "cancelled": "已取消"
   },
   "firstRun": {
     "title": "歡迎使用 yande-dl",

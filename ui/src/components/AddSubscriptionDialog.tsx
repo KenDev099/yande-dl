@@ -27,14 +27,21 @@ export function AddSubscriptionDialog() {
   const [open, setOpen] = useState(false);
   const [provider, setProvider] = useState(PROVIDERS[0].id);
   const [tag, setTag] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const add = useAddSubscription();
 
   const submit = async () => {
     if (!tag.trim()) return;
     try {
-      await add.mutateAsync({ provider, tag });
+      const trimmedAlias = displayName.trim();
+      await add.mutateAsync({
+        provider,
+        tag,
+        displayName: trimmedAlias.length > 0 ? trimmedAlias : null,
+      });
       toast.success(t("addDialog.toastAdded", { tag: tag.trim() }));
       setTag("");
+      setDisplayName("");
       setOpen(false);
     } catch (e) {
       toast.error(t("addDialog.toastError", { error: String(e) }));
@@ -83,12 +90,29 @@ export function AddSubscriptionDialog() {
               value={tag}
               onChange={(e) => setTag(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") submit();
+                if (e.key === "Enter" && !e.nativeEvent.isComposing) submit();
               }}
               autoFocus
             />
             <p className="text-xs text-muted-foreground">
               {t("addDialog.tagHint")}
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="display-name-input">
+              {t("addDialog.displayNameLabel")}
+            </Label>
+            <Input
+              id="display-name-input"
+              placeholder={t("addDialog.displayNamePlaceholder")}
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.nativeEvent.isComposing) submit();
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t("addDialog.displayNameHint")}
             </p>
           </div>
         </div>

@@ -17,7 +17,9 @@
   },
   "sidebar": {
     "subscriptions": "订阅",
-    "settings": "设置"
+    "settings": "设置",
+    "tagsHeading": "标签",
+    "tagsEmpty": "暂无订阅"
   },
   "subscriptions": {
     "title": "订阅",
@@ -30,6 +32,7 @@
     "cardDownload": "下载",
     "cardOpenFolder": "打开文件夹",
     "cardRefetch": "重新抓取全部",
+    "cardRename": "重命名",
     "cardRemove": "移除订阅",
     "cardDownloaded": "已下载 {{count}} 张",
     "cardLastRunNever": "从未运行",
@@ -49,9 +52,57 @@
     "tag": "标签",
     "tagPlaceholder": "例:stella_sora",
     "tagHint": "请使用小写字母,空格用下划线。标签不区分大小写。",
+    "displayNameLabel": "别名(选填)",
+    "displayNamePlaceholder": "例:琪露诺",
+    "displayNameHint": "在侧栏与卡片上显示的友好名称。可随时修改。",
     "submitting": "添加中…",
     "toastAdded": "已订阅 {{tag}}",
     "toastError": "无法添加订阅:{{error}}"
+  },
+  "rename": {
+    "title": "重命名",
+    "description": "设置别名(例如中文名)。清空则显示原 tag。",
+    "label": "别名",
+    "placeholder": "例:琪露诺",
+    "submit": "保存",
+    "toastUpdated": "已更新名称",
+    "toastError": "无法更新名称:{{error}}"
+  },
+  "tagDetail": {
+    "notFound": "找不到此订阅",
+    "emptyTitle": "暂无图片预览",
+    "emptyHint": "点上方「预览」可在不下载的情况下看到缩略图;按「下载」或「更新」则开始抓取。",
+    "currentJobLabel": "当前 {{count}} 张",
+    "preview": "预览",
+    "previewTooltip": "向 API 抓一页缩略图,不下载原文件",
+    "previewLoading": "预览中…",
+    "previewError": "预览失败:{{error}}",
+    "loadMore": "加载第 {{next}} 页",
+    "selectionCount": "已选 {{count}} 张",
+    "downloadSelected": "下载选中 ({{count}})",
+    "downloadSelectedLoading": "启动中…",
+    "clearSelection": "清除选择",
+    "toastStartingSelected": "开始下载已选的 {{count}} 张",
+    "toastErrorSelected": "下载失败:{{error}}"
+  },
+  "preview": {
+    "cacheMiss": "预览数据已过期,请重新按「预览」"
+  },
+  "postMenu": {
+    "openOriginal": "打开原图",
+    "copyOriginalUrl": "复制原图链接",
+    "openPostPage": "打开贴文页面",
+    "copyPostId": "复制贴文 ID",
+    "clipboardCopied": "已复制",
+    "clipboardError": "复制失败:{{error}}"
+  },
+  "postStatus": {
+    "queued": "排队",
+    "downloading": "下载中",
+    "saved": "完成",
+    "skipped": "已存在",
+    "failed": "失败",
+    "cancelled": "已取消"
   },
   "firstRun": {
     "title": "欢迎使用 yande-dl",

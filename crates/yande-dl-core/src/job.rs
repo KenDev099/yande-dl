@@ -4,6 +4,7 @@ use crate::model::SearchQuery;
 use crate::provider::ImageProvider;
 use crate::sanitize::normalize_tag;
 use futures::stream::{FuturesUnordered, StreamExt};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -19,6 +20,55 @@ pub struct DownloadJob {
     /// recover from any earlier transient failures. Default: 2.
     pub incremental_lookback_pages: u32,
     pub query_extra: SearchQuery,
+}
+
+/// Lifecycle state of a single post during a job. Emitted via `JobMessage::PostStatus`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PostStatus {
+    Queued,
+    Downloading,
+    Saved,
+    Skipped,
+    Failed,
+    Cancelled,
+}
+
+/// Per-post metadata pushed to the frontend so it can render a thumbnail grid.
+/// Sample/preview URLs come from `Post.variants` (the provider already parses them).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PostInfo {
+    pub post_id: i64,
+    pub sample_url: Option<String>,
+    pub preview_url: String,
+    pub original_url: String,
+    pub width: u32,
+    pub height: u32,
+    pub status: PostStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PostStatusEvent {
+    pub post_id: i64,
+    pub status: PostStatus,
+}
+
+/// Messages emitted by `run_job` on a single channel. The page-level aggregate
+/// is stale-tolerant (try_send may drop); per-post messages are not (use
+/// `send().await`). The forwarder in the Tauri layer demuxes by variant.
+#[derive(Debug, Clone)]
+pub enum JobMessage {
+    /// Page-level aggregate counts. Stale-tolerant — earlier values can be
+    /// dropped by `try_send` without loss of correctness.
+    PageProgress(JobProgress),
+    /// Emitted once per page after candidate filtering. Carries thumbnail
+    /// URLs and initial status (`Queued` for unknown posts, `Skipped` for
+    /// ones already on disk).
+    PostsDiscovered(Vec<PostInfo>),
+    /// Emitted on every status transition of an individual post.
+    PostStatus(PostStatusEvent),
 }
 
 impl DownloadJob {
@@ -58,7 +108,7 @@ pub async fn run_job<B>(
     job: DownloadJob,
     downloader: Arc<Downloader>,
     blacklist_match: B,
-    progress_tx: mpsc::Sender<JobProgress>,
+    progress_tx: mpsc::Sender<JobMessage>,
     cancel: CancellationToken,
 ) -> Result<JobOutcome, CoreError>
 where
@@ -132,15 +182,67 @@ where
             continue;
         }
 
+        // Snapshot all candidates with thumbnail URLs + initial status so the
+        // frontend can render the grid immediately. Posts already on disk get
+        // `Skipped` here (no Downloading event will follow for them).
+        if !candidates.is_empty() {
+            let post_infos: Vec<PostInfo> = candidates
+                .iter()
+                .map(|p| PostInfo {
+                    post_id: p.post_id,
+                    sample_url: p.variants.sample.as_ref().map(|v| v.url.clone()),
+                    preview_url: p.variants.preview.url.clone(),
+                    original_url: p.variants.original.url.clone(),
+                    width: p.width,
+                    height: p.height,
+                    status: if known_ids.contains(&p.post_id) {
+                        PostStatus::Skipped
+                    } else {
+                        PostStatus::Queued
+                    },
+                })
+                .collect();
+            // Not stale-tolerant: the grid relies on knowing all posts. If the
+            // channel is full, wait — the consumer is fast (just emits Tauri events).
+            let _ = progress_tx
+                .send(JobMessage::PostsDiscovered(post_infos))
+                .await;
+        }
+
         let mut futs = FuturesUnordered::new();
         for post in candidates {
             let dl = downloader.clone();
             let known = known_ids.clone();
             let tag = normalized.clone();
             let token = cancel.clone();
+            let tx = progress_tx.clone();
+            let post_id = post.post_id;
+            let will_skip = known.contains(&post_id);
             futs.push(tokio::spawn(async move {
-                dl.download_post(&post, &tag, |id| known.contains(&id), &token)
-                    .await
+                if !will_skip {
+                    let _ = tx
+                        .send(JobMessage::PostStatus(PostStatusEvent {
+                            post_id,
+                            status: PostStatus::Downloading,
+                        }))
+                        .await;
+                }
+                let outcome = dl
+                    .download_post(&post, &tag, |id| known.contains(&id), &token)
+                    .await;
+                let final_status = match &outcome.status {
+                    DownloadStatus::Saved => PostStatus::Saved,
+                    DownloadStatus::SkippedDuplicate => PostStatus::Skipped,
+                    DownloadStatus::Cancelled => PostStatus::Cancelled,
+                    DownloadStatus::Failed(_) => PostStatus::Failed,
+                };
+                let _ = tx
+                    .send(JobMessage::PostStatus(PostStatusEvent {
+                        post_id,
+                        status: final_status,
+                    }))
+                    .await;
+                outcome
             }));
         }
 
@@ -175,9 +277,9 @@ where
         progress.fetched += posts.len() as u32;
         progress.current_page = page;
 
-        // Bounded channel + try_send: progress is stale-tolerant; dropping
-        // updates is preferable to backpressuring the runner.
-        let _ = progress_tx.try_send(progress.clone());
+        // Bounded channel + try_send: page-aggregate progress is stale-tolerant;
+        // dropping updates is preferable to backpressuring the runner.
+        let _ = progress_tx.try_send(JobMessage::PageProgress(progress.clone()));
 
         page += 1;
     }

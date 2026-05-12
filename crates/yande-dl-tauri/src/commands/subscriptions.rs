@@ -12,6 +12,7 @@ pub struct SubscriptionDto {
     pub provider_display_name: String,
     pub tag: String,
     pub normalized_tag: String,
+    pub display_name: Option<String>,
     pub last_run_at: Option<i64>,
     pub last_seen_post_id: i64,
     pub total_downloaded: u64,
@@ -26,6 +27,7 @@ impl SubscriptionDto {
             provider_display_name,
             tag: sub.tag,
             normalized_tag: sub.normalized_tag,
+            display_name: sub.display_name,
             last_run_at: sub.last_run_at,
             last_seen_post_id: sub.last_seen_post_id,
             total_downloaded: sub.total_downloaded,
@@ -62,17 +64,34 @@ pub async fn add_subscription(
     state: State<'_, AppState>,
     provider: String,
     tag: String,
+    display_name: Option<String>,
 ) -> Result<SubscriptionDto, String> {
     if !state.providers.contains_key(&provider) {
         return Err(format!("unknown provider: {}", provider));
     }
     let sub = state
         .tags
-        .add(&provider, &tag)
+        .add_with_display_name(&provider, &tag, display_name)
         .await
         .map_err(|e| e.to_string())?;
     let display = provider_display_name(&state, &sub.provider);
     Ok(SubscriptionDto::from(sub, display))
+}
+
+#[tauri::command]
+pub async fn update_subscription_display_name(
+    state: State<'_, AppState>,
+    id: String,
+    display_name: Option<String>,
+) -> Result<SubscriptionDto, String> {
+    let updated = state
+        .tags
+        .update_display_name(&id, display_name)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "subscription not found".to_string())?;
+    let display = provider_display_name(&state, &updated.provider);
+    Ok(SubscriptionDto::from(updated, display))
 }
 
 #[tauri::command]

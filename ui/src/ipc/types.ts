@@ -4,10 +4,42 @@ export interface SubscriptionDto {
   providerDisplayName: string;
   tag: string;
   normalizedTag: string;
+  displayName: string | null;
   lastRunAt: number | null;
   lastSeenPostId: number;
   totalDownloaded: number;
   createdAt: number;
+}
+
+export type PostStatus =
+  | "queued"
+  | "downloading"
+  | "saved"
+  | "skipped"
+  | "failed"
+  | "cancelled";
+
+export interface PostInfo {
+  postId: number;
+  sampleUrl: string | null;
+  previewUrl: string;
+  originalUrl: string;
+  width: number;
+  height: number;
+  status: PostStatus;
+}
+
+export interface PostsDiscoveredEvent {
+  jobId: string;
+  subscriptionId: string;
+  posts: PostInfo[];
+}
+
+export interface PostStatusUpdateEvent {
+  jobId: string;
+  subscriptionId: string;
+  postId: number;
+  status: PostStatus;
 }
 
 export interface ActiveJobDto {

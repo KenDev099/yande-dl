@@ -25,15 +25,19 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::subscriptions::list_subscriptions,
             commands::subscriptions::add_subscription,
+            commands::subscriptions::update_subscription_display_name,
             commands::subscriptions::remove_subscription,
             commands::subscriptions::export_subscriptions,
             commands::subscriptions::import_subscriptions,
             commands::download::start_download,
+            commands::download::preview_subscription,
+            commands::download::download_selected_posts,
             commands::download::cancel_job,
             commands::download::list_active_jobs,
             commands::settings::get_settings,
             commands::settings::update_settings,
             commands::system::open_folder,
+            commands::system::open_url,
             commands::system::open_post_url,
         ])
         .run(tauri::generate_context!())

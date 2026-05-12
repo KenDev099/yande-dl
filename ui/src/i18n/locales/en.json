@@ -17,7 +17,9 @@
   },
   "sidebar": {
     "subscriptions": "Subscriptions",
-    "settings": "Settings"
+    "settings": "Settings",
+    "tagsHeading": "Tags",
+    "tagsEmpty": "No subscriptions yet"
   },
   "subscriptions": {
     "title": "Subscriptions",
@@ -30,6 +32,7 @@
     "cardDownload": "Download",
     "cardOpenFolder": "Open folder",
     "cardRefetch": "Re-fetch the entire backlog",
+    "cardRename": "Rename",
     "cardRemove": "Remove subscription",
     "cardDownloaded": "{{count}} downloaded",
     "cardLastRunNever": "last run never",
@@ -49,9 +52,57 @@
     "tag": "Tag",
     "tagPlaceholder": "e.g. stella_sora",
     "tagHint": "Use lowercase, underscores for spaces. Tag is case-insensitive.",
+    "displayNameLabel": "Display name (optional)",
+    "displayNamePlaceholder": "e.g. Cirno",
+    "displayNameHint": "A friendly name shown in the sidebar and card. Editable later.",
     "submitting": "Adding…",
     "toastAdded": "Subscribed to {{tag}}",
     "toastError": "Could not add subscription: {{error}}"
+  },
+  "rename": {
+    "title": "Rename subscription",
+    "description": "Set a friendly alias (e.g. a localized name). Leave empty to show the raw tag.",
+    "label": "Display name",
+    "placeholder": "e.g. Cirno",
+    "submit": "Save",
+    "toastUpdated": "Name updated",
+    "toastError": "Could not update name: {{error}}"
+  },
+  "tagDetail": {
+    "notFound": "Subscription not found",
+    "emptyTitle": "No thumbnails yet",
+    "emptyHint": "Click Preview to see thumbnails without downloading; click Download or Update to start fetching.",
+    "currentJobLabel": "{{count}} posts",
+    "preview": "Preview",
+    "previewTooltip": "Fetch one page of thumbnails from the API without downloading",
+    "previewLoading": "Previewing…",
+    "previewError": "Preview failed: {{error}}",
+    "loadMore": "Load page {{next}}",
+    "selectionCount": "{{count}} selected",
+    "downloadSelected": "Download selected ({{count}})",
+    "downloadSelectedLoading": "Starting…",
+    "clearSelection": "Clear selection",
+    "toastStartingSelected": "Started downloading {{count}} selected post(s)",
+    "toastErrorSelected": "Download failed: {{error}}"
+  },
+  "preview": {
+    "cacheMiss": "Preview data is stale; run Preview again"
+  },
+  "postMenu": {
+    "openOriginal": "Open original image",
+    "copyOriginalUrl": "Copy original URL",
+    "openPostPage": "Open post page",
+    "copyPostId": "Copy post ID",
+    "clipboardCopied": "Copied",
+    "clipboardError": "Copy failed: {{error}}"
+  },
+  "postStatus": {
+    "queued": "Queued",
+    "downloading": "Downloading",
+    "saved": "Saved",
+    "skipped": "Already on disk",
+    "failed": "Failed",
+    "cancelled": "Cancelled"
   },
   "firstRun": {
     "title": "Welcome to yande-dl",

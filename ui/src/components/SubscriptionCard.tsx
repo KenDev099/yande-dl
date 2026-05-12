@@ -1,16 +1,26 @@
+import { useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { Download, FolderOpen, RefreshCw, Trash2 } from "lucide-react";
+import {
+  Download,
+  FolderOpen,
+  Pencil,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
+import { Link } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ipc } from "@/ipc/client";
 import { formatTimestamp } from "@/lib/utils";
 import { useRemoveSubscription } from "@/hooks/useSubscriptions";
+import { RenameSubscriptionDialog } from "@/components/RenameSubscriptionDialog";
 import type { SubscriptionDto } from "@/ipc/types";
 
 export function SubscriptionCard({ sub }: { sub: SubscriptionDto }) {
   const { t } = useTranslation();
   const remove = useRemoveSubscription();
+  const [renameOpen, setRenameOpen] = useState(false);
 
   const startDownload = async (incremental: boolean) => {
     try {
@@ -50,69 +60,99 @@ export function SubscriptionCard({ sub }: { sub: SubscriptionDto }) {
     ? t("subscriptions.cardLastRun", { time: formatTimestamp(sub.lastRunAt) })
     : t("subscriptions.cardLastRunNever");
 
+  const primary = sub.displayName ?? sub.tag;
+  const showOriginal = !!sub.displayName && sub.displayName !== sub.tag;
+
   return (
-    <Card>
-      <CardContent className="flex items-center justify-between gap-4 p-4">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
-              {sub.providerDisplayName}
-            </span>
-            <span className="mono truncate text-sm font-medium">{sub.tag}</span>
+    <>
+      <Card>
+        <CardContent className="flex items-center justify-between gap-4 p-4">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
+                {sub.providerDisplayName}
+              </span>
+              <Link
+                to={`/tags/${sub.id}`}
+                className="min-w-0 truncate text-sm font-medium hover:underline"
+              >
+                {primary}
+              </Link>
+              {showOriginal && (
+                <span className="mono shrink-0 text-xs text-muted-foreground">
+                  · {sub.tag}
+                </span>
+              )}
+            </div>
+            <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
+              <span>
+                {t("subscriptions.cardDownloaded", {
+                  count: sub.totalDownloaded,
+                })}
+              </span>
+              <span aria-hidden>·</span>
+              <span>{lastRunDisplay}</span>
+            </div>
           </div>
-          <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
-            <span>
-              {t("subscriptions.cardDownloaded", { count: sub.totalDownloaded })}
-            </span>
-            <span aria-hidden>·</span>
-            <span>{lastRunDisplay}</span>
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          {hasBaseline ? (
-            <Button
-              size="sm"
-              onClick={() => startDownload(true)}
-              title={t("subscriptions.cardUpdateTooltip")}
-            >
-              <RefreshCw className="mr-1 h-3.5 w-3.5" />{" "}
-              {t("subscriptions.cardUpdate")}
-            </Button>
-          ) : (
-            <Button size="sm" onClick={() => startDownload(false)}>
-              <Download className="mr-1 h-3.5 w-3.5" />{" "}
-              {t("subscriptions.cardDownload")}
-            </Button>
-          )}
-          {hasBaseline && (
+          <div className="flex shrink-0 items-center gap-1">
+            {hasBaseline ? (
+              <Button
+                size="sm"
+                onClick={() => startDownload(true)}
+                title={t("subscriptions.cardUpdateTooltip")}
+              >
+                <RefreshCw className="mr-1 h-3.5 w-3.5" />{" "}
+                {t("subscriptions.cardUpdate")}
+              </Button>
+            ) : (
+              <Button size="sm" onClick={() => startDownload(false)}>
+                <Download className="mr-1 h-3.5 w-3.5" />{" "}
+                {t("subscriptions.cardDownload")}
+              </Button>
+            )}
+            {hasBaseline && (
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => startDownload(false)}
+                title={t("subscriptions.cardRefetch")}
+              >
+                <Download className="h-4 w-4" />
+              </Button>
+            )}
             <Button
               size="icon"
               variant="ghost"
-              onClick={() => startDownload(false)}
-              title={t("subscriptions.cardRefetch")}
+              onClick={() => setRenameOpen(true)}
+              title={t("subscriptions.cardRename")}
             >
-              <Download className="h-4 w-4" />
+              <Pencil className="h-4 w-4" />
             </Button>
-          )}
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={openFolder}
-            title={t("subscriptions.cardOpenFolder")}
-          >
-            <FolderOpen className="h-4 w-4" />
-          </Button>
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={onRemove}
-            title={t("subscriptions.cardRemove")}
-            disabled={remove.isPending}
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={openFolder}
+              title={t("subscriptions.cardOpenFolder")}
+            >
+              <FolderOpen className="h-4 w-4" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={onRemove}
+              title={t("subscriptions.cardRemove")}
+              disabled={remove.isPending}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+      <RenameSubscriptionDialog
+        sub={sub}
+        open={renameOpen}
+        onOpenChange={setRenameOpen}
+      />
+    </>
   );
 }

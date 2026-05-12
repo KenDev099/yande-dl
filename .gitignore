@@ -42,6 +42,9 @@ desktop.ini
 # Test artifacts
 crates/**/test_output/
 
+# Superpowers brainstorming scratch (mockups, session state)
+.superpowers/
+
 # Build artifacts (Tauri)
 *.dmg
 *.app

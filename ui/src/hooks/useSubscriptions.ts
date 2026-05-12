@@ -13,8 +13,20 @@ export function useSubscriptions() {
 export function useAddSubscription() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { provider: string; tag: string }) =>
-      ipc.subscriptions.add(input.provider, input.tag),
+    mutationFn: (input: {
+      provider: string;
+      tag: string;
+      displayName?: string | null;
+    }) => ipc.subscriptions.add(input.provider, input.tag, input.displayName),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+  });
+}
+
+export function useUpdateSubscriptionDisplayName() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; displayName: string | null }) =>
+      ipc.subscriptions.updateDisplayName(input.id, input.displayName),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   });
 }

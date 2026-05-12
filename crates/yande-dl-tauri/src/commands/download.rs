@@ -1,17 +1,20 @@
 use crate::events::{
-    DownloadCompletedEvent, DownloadProgressEvent, NotificationEvent, EVENT_DOWNLOAD_COMPLETED,
-    EVENT_DOWNLOAD_PROGRESS, EVENT_NOTIFICATION,
+    DownloadCompletedEvent, DownloadProgressEvent, NotificationEvent, PostStatusUpdateEvent,
+    PostsDiscoveredEvent, EVENT_DOWNLOAD_COMPLETED, EVENT_DOWNLOAD_PROGRESS, EVENT_NOTIFICATION,
+    EVENT_POSTS_DISCOVERED, EVENT_POST_STATUS,
 };
 use crate::state::{ActiveJob, AppState};
+use futures::stream::{FuturesUnordered, StreamExt};
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use yande_dl_config::Settings;
-use yande_dl_core::downloader::Downloader;
-use yande_dl_core::job::{run_job, DownloadJob, JobProgress};
-use yande_dl_core::model::Rating;
+use yande_dl_core::downloader::{DownloadStatus, Downloader};
+use yande_dl_core::job::{run_job, DownloadJob, JobMessage, JobProgress, PostInfo, PostStatus};
+use yande_dl_core::model::{Rating, SearchQuery};
+use yande_dl_core::sanitize::normalize_tag;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -112,7 +115,10 @@ pub async fn start_download(
 
     let job_id = uuid::Uuid::new_v4().to_string();
     let cancel = CancellationToken::new();
-    let (progress_tx, mut progress_rx) = mpsc::channel::<JobProgress>(16);
+    // Capacity 128: per-post events (PostsDiscovered + PostStatus) cannot be
+    // dropped or the thumbnail grid loses state. Burst per page ~50 posts × 2
+    // transitions ≈ 100; 128 gives 1.3x headroom.
+    let (progress_tx, mut progress_rx) = mpsc::channel::<JobMessage>(128);
 
     {
         let mut active = state.active_jobs.lock().await;
@@ -130,32 +136,57 @@ pub async fn start_download(
 
     let blacklist_match = make_blacklist(settings.blacklist.clone());
 
-    // Forward progress events.
+    // Forward progress events. Demux JobMessage → 3 different Tauri events.
     let app_for_progress = app.clone();
     let job_id_for_progress = job_id.clone();
     let sub_id_for_progress = sub.id.clone();
     let active_jobs_for_progress = state.active_jobs.clone();
     tokio::spawn(async move {
-        while let Some(progress) = progress_rx.recv().await {
-            {
-                let mut active = active_jobs_for_progress.lock().await;
-                if let Some(job) = active.get_mut(&job_id_for_progress) {
-                    job.progress = progress.clone();
+        while let Some(msg) = progress_rx.recv().await {
+            match msg {
+                JobMessage::PageProgress(progress) => {
+                    {
+                        let mut active = active_jobs_for_progress.lock().await;
+                        if let Some(job) = active.get_mut(&job_id_for_progress) {
+                            job.progress = progress.clone();
+                        }
+                    }
+                    let _ = app_for_progress.emit(
+                        EVENT_DOWNLOAD_PROGRESS,
+                        DownloadProgressEvent {
+                            job_id: job_id_for_progress.clone(),
+                            subscription_id: sub_id_for_progress.clone(),
+                            current_page: progress.current_page,
+                            fetched: progress.fetched,
+                            saved: progress.saved,
+                            skipped: progress.skipped,
+                            failed: progress.failed,
+                            cancelled: progress.cancelled,
+                        },
+                    );
+                }
+                JobMessage::PostsDiscovered(posts) => {
+                    let _ = app_for_progress.emit(
+                        EVENT_POSTS_DISCOVERED,
+                        PostsDiscoveredEvent {
+                            job_id: job_id_for_progress.clone(),
+                            subscription_id: sub_id_for_progress.clone(),
+                            posts,
+                        },
+                    );
+                }
+                JobMessage::PostStatus(ev) => {
+                    let _ = app_for_progress.emit(
+                        EVENT_POST_STATUS,
+                        PostStatusUpdateEvent {
+                            job_id: job_id_for_progress.clone(),
+                            subscription_id: sub_id_for_progress.clone(),
+                            post_id: ev.post_id,
+                            status: ev.status,
+                        },
+                    );
                 }
             }
-            let _ = app_for_progress.emit(
-                EVENT_DOWNLOAD_PROGRESS,
-                DownloadProgressEvent {
-                    job_id: job_id_for_progress.clone(),
-                    subscription_id: sub_id_for_progress.clone(),
-                    current_page: progress.current_page,
-                    fetched: progress.fetched,
-                    saved: progress.saved,
-                    skipped: progress.skipped,
-                    failed: progress.failed,
-                    cancelled: progress.cancelled,
-                },
-            );
         }
     });
 
@@ -225,6 +256,287 @@ pub async fn cancel_job(state: State<'_, AppState>, job_id: String) -> Result<()
     } else {
         Err("job not found".into())
     }
+}
+
+/// Run a paginated search without downloading. Emits `PostsDiscovered` per page
+/// so the frontend grid can render thumbnails, and caches full `Post` objects in
+/// `state.recent_posts` for later use by `download_selected_posts`.
+#[tauri::command]
+pub async fn preview_subscription(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    subscription_id: String,
+    page: Option<u32>,
+    job_id: Option<String>,
+) -> Result<StartDownloadResp, String> {
+    let tags_file = state.tags.load().await.map_err(|e| e.to_string())?;
+    let sub = tags_file
+        .subscriptions
+        .iter()
+        .find(|s| s.id == subscription_id)
+        .cloned()
+        .ok_or_else(|| "subscription not found".to_string())?;
+
+    let provider = state
+        .providers
+        .get(&sub.provider)
+        .cloned()
+        .ok_or_else(|| format!("unknown provider: {}", sub.provider))?;
+
+    let settings = state.settings.load().await.map_err(|e| e.to_string())?;
+    let download_root = settings
+        .download_root
+        .clone()
+        .ok_or_else(|| "download root is not set".to_string())?;
+
+    let normalized = normalize_tag(&sub.tag);
+    let folder = Downloader::new(state.http_client.clone(), 1, download_root, 0)
+        .folder_path(&sub.provider, &normalized);
+    let known_ids = Downloader::scan_existing_post_ids(&folder, &sub.provider).await;
+
+    let job_id = job_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let page = page.unwrap_or(1).max(1);
+
+    let mut q = SearchQuery {
+        ratings: ratings_from_settings(&settings),
+        ..Default::default()
+    };
+    q.tags.insert(0, normalized.clone());
+    q.limit = 100;
+
+    let posts = provider.search(&q, page).await.map_err(|e| e.to_string())?;
+
+    let post_infos: Vec<PostInfo> = posts
+        .iter()
+        .map(|p| PostInfo {
+            post_id: p.post_id,
+            sample_url: p.variants.sample.as_ref().map(|v| v.url.clone()),
+            preview_url: p.variants.preview.url.clone(),
+            original_url: p.variants.original.url.clone(),
+            width: p.width,
+            height: p.height,
+            status: if known_ids.contains(&p.post_id) {
+                PostStatus::Skipped
+            } else {
+                PostStatus::Queued
+            },
+        })
+        .collect();
+
+    {
+        let mut cache = state.recent_posts.lock().await;
+        for p in &posts {
+            cache.insert((sub.id.clone(), p.post_id), p.clone());
+        }
+    }
+
+    let _ = app.emit(
+        EVENT_POSTS_DISCOVERED,
+        PostsDiscoveredEvent {
+            job_id: job_id.clone(),
+            subscription_id: sub.id.clone(),
+            posts: post_infos,
+        },
+    );
+
+    let _ = app.emit(
+        EVENT_DOWNLOAD_COMPLETED,
+        DownloadCompletedEvent {
+            job_id: job_id.clone(),
+            subscription_id: sub.id.clone(),
+            total_saved: 0,
+            total_skipped: 0,
+            total_failed: 0,
+            total_cancelled: 0,
+            safe_last_post_id: sub.last_seen_post_id,
+        },
+    );
+
+    Ok(StartDownloadResp { job_id })
+}
+
+/// Download a user-selected subset of posts from `recent_posts` cache.
+/// Does NOT advance `last_seen_post_id` — selected downloads are non-linear
+/// (user picks specific post_ids), so bumping the baseline would skip posts.
+#[tauri::command]
+pub async fn download_selected_posts(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    subscription_id: String,
+    post_ids: Vec<i64>,
+) -> Result<StartDownloadResp, String> {
+    if post_ids.is_empty() {
+        return Err("no posts selected".into());
+    }
+
+    let tags_file = state.tags.load().await.map_err(|e| e.to_string())?;
+    let sub = tags_file
+        .subscriptions
+        .iter()
+        .find(|s| s.id == subscription_id)
+        .cloned()
+        .ok_or_else(|| "subscription not found".to_string())?;
+
+    let settings = state.settings.load().await.map_err(|e| e.to_string())?;
+    let download_root = settings
+        .download_root
+        .clone()
+        .ok_or_else(|| "download root is not set".to_string())?;
+
+    let posts: Vec<_> = {
+        let cache = state.recent_posts.lock().await;
+        let mut found = Vec::with_capacity(post_ids.len());
+        for id in &post_ids {
+            match cache.get(&(sub.id.clone(), *id)) {
+                Some(p) => found.push(p.clone()),
+                None => return Err("preview-cache miss; run preview first".into()),
+            }
+        }
+        found
+    };
+
+    let downloader = Arc::new(Downloader::new(
+        state.http_client.clone(),
+        settings.concurrency.max(1) as usize,
+        download_root,
+        settings.min_delay_ms,
+    ));
+
+    let normalized = normalize_tag(&sub.tag);
+    let folder = downloader.folder_path(&sub.provider, &normalized);
+    let known_ids = Arc::new(Downloader::scan_existing_post_ids(&folder, &sub.provider).await);
+
+    let job_id = uuid::Uuid::new_v4().to_string();
+    let cancel = CancellationToken::new();
+
+    {
+        let mut active = state.active_jobs.lock().await;
+        active.insert(
+            job_id.clone(),
+            ActiveJob {
+                job_id: job_id.clone(),
+                subscription_id: sub.id.clone(),
+                raw_tag: sub.tag.clone(),
+                progress: JobProgress::default(),
+                cancel: cancel.clone(),
+            },
+        );
+    }
+
+    let app_clone = app.clone();
+    let active_jobs = state.active_jobs.clone();
+    let tags_store = state.tags.clone();
+    let job_id_clone = job_id.clone();
+    let sub_id_clone = sub.id.clone();
+
+    tokio::spawn(async move {
+        let mut futs = FuturesUnordered::new();
+        for post in posts {
+            let dl = downloader.clone();
+            let known = known_ids.clone();
+            let tag = normalized.clone();
+            let token = cancel.clone();
+            let app = app_clone.clone();
+            let job_id = job_id_clone.clone();
+            let sub_id = sub_id_clone.clone();
+            let post_id = post.post_id;
+            let will_skip = known.contains(&post_id);
+            futs.push(tokio::spawn(async move {
+                if !will_skip {
+                    let _ = app.emit(
+                        EVENT_POST_STATUS,
+                        PostStatusUpdateEvent {
+                            job_id: job_id.clone(),
+                            subscription_id: sub_id.clone(),
+                            post_id,
+                            status: PostStatus::Downloading,
+                        },
+                    );
+                }
+                let outcome = dl
+                    .download_post(&post, &tag, |id| known.contains(&id), &token)
+                    .await;
+                let final_status = match &outcome.status {
+                    DownloadStatus::Saved => PostStatus::Saved,
+                    DownloadStatus::SkippedDuplicate => PostStatus::Skipped,
+                    DownloadStatus::Cancelled => PostStatus::Cancelled,
+                    DownloadStatus::Failed(_) => PostStatus::Failed,
+                };
+                let _ = app.emit(
+                    EVENT_POST_STATUS,
+                    PostStatusUpdateEvent {
+                        job_id,
+                        subscription_id: sub_id,
+                        post_id,
+                        status: final_status,
+                    },
+                );
+                outcome
+            }));
+        }
+
+        let mut progress = JobProgress::default();
+        while let Some(res) = futs.next().await {
+            if let Ok(outcome) = res {
+                match &outcome.status {
+                    DownloadStatus::Saved => progress.saved += 1,
+                    DownloadStatus::SkippedDuplicate => progress.skipped += 1,
+                    DownloadStatus::Cancelled => progress.cancelled += 1,
+                    DownloadStatus::Failed(_) => progress.failed += 1,
+                }
+            } else {
+                progress.failed += 1;
+            }
+            progress.fetched += 1;
+
+            {
+                let mut active = active_jobs.lock().await;
+                if let Some(j) = active.get_mut(&job_id_clone) {
+                    j.progress = progress.clone();
+                }
+            }
+            let _ = app_clone.emit(
+                EVENT_DOWNLOAD_PROGRESS,
+                DownloadProgressEvent {
+                    job_id: job_id_clone.clone(),
+                    subscription_id: sub_id_clone.clone(),
+                    current_page: 0,
+                    fetched: progress.fetched,
+                    saved: progress.saved,
+                    skipped: progress.skipped,
+                    failed: progress.failed,
+                    cancelled: progress.cancelled,
+                },
+            );
+        }
+
+        {
+            let mut active = active_jobs.lock().await;
+            active.remove(&job_id_clone);
+        }
+
+        if let Err(e) = tags_store
+            .bump_downloaded_count(&sub_id_clone, progress.saved as u64)
+            .await
+        {
+            tracing::error!("bump_downloaded_count failed: {}", e);
+        }
+
+        let _ = app_clone.emit(
+            EVENT_DOWNLOAD_COMPLETED,
+            DownloadCompletedEvent {
+                job_id: job_id_clone,
+                subscription_id: sub_id_clone,
+                total_saved: progress.saved,
+                total_skipped: progress.skipped,
+                total_failed: progress.failed,
+                total_cancelled: progress.cancelled,
+                safe_last_post_id: sub.last_seen_post_id,
+            },
+        );
+    });
+
+    Ok(StartDownloadResp { job_id })
 }
 
 #[tauri::command]

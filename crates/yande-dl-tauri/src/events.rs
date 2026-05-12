@@ -1,7 +1,10 @@
 use serde::Serialize;
+use yande_dl_core::job::{PostInfo, PostStatus};
 
 pub const EVENT_DOWNLOAD_PROGRESS: &str = "download:progress";
 pub const EVENT_DOWNLOAD_COMPLETED: &str = "download:completed";
+pub const EVENT_POSTS_DISCOVERED: &str = "download:postsDiscovered";
+pub const EVENT_POST_STATUS: &str = "download:postStatus";
 pub const EVENT_NOTIFICATION: &str = "notification";
 
 #[derive(Debug, Clone, Serialize)]
@@ -15,6 +18,23 @@ pub struct DownloadProgressEvent {
     pub skipped: u32,
     pub failed: u32,
     pub cancelled: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PostsDiscoveredEvent {
+    pub job_id: String,
+    pub subscription_id: String,
+    pub posts: Vec<PostInfo>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PostStatusUpdateEvent {
+    pub job_id: String,
+    pub subscription_id: String,
+    pub post_id: i64,
+    pub status: PostStatus,
 }
 
 #[derive(Debug, Clone, Serialize)]
