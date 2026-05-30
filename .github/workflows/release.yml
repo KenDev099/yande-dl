@@ -1,12 +1,70 @@
 name: Release
 
+# Why: every push to main publishes/refreshes a downloadable release. The version
+# is read from tauri.conf.json, so the release is tagged v<version>. Bump the
+# version (pnpm bump <semver>) to cut a fresh tagged release; pushes that keep the
+# same version refresh that release's binaries in place.
+#
+# Flow (canonical multi-platform tauri-action pattern):
+#   version        -> read the version from tauri.conf.json
+#   create-release -> create ONE draft release (skipped if it already exists),
+#                     emit its id. A single creator avoids the parallel-create race.
+#   build (matrix) -> build each platform and upload assets to that release id.
+#   publish        -> flip the release to public only after ALL platforms uploaded,
+#                     so the public never sees a half-built release.
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
   workflow_dispatch:
 
+# tauri-action / gh need write access to create the release and upload binaries.
+# The repo default token is read-only, so this is required.
+permissions:
+  contents: write
+
+# A newer push to main supersedes an in-flight release build.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  version:
+    name: Resolve version
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: read
+        run: echo "version=$(jq -r .version crates/yande-dl-tauri/tauri.conf.json)" >> "$GITHUB_OUTPUT"
+
+  create-release:
+    name: Create draft release
+    needs: version
+    runs-on: ubuntu-22.04
+    outputs:
+      release_id: ${{ steps.create.outputs.release_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: create
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          tag="v$VERSION"
+          # Create the draft once. On a same-version re-push the release already
+          # exists, so we reuse it (and never un-publish a live release).
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            case "$VERSION" in *-*) pre=--prerelease ;; *) pre="" ;; esac
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --draft $pre --target "$GITHUB_SHA" \
+              --title "yande-dl $tag" --notes-file .github/RELEASE_NOTES.md
+          fi
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq .id)
+          echo "release_id=$id" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: [version, create-release]
     strategy:
       fail-fast: false
       matrix:
@@ -55,13 +113,26 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: ui
 
+      # Why: tauri-action runs the CLI with cwd=projectPath (crates/yande-dl-tauri),
+      # so the config's `beforeBuildCommand: pnpm --dir ui build` would resolve to
+      # crates/yande-dl-tauri/ui (which does not exist). Override it to point at the
+      # real ui dir relative to projectPath. frontendDist (../../ui/dist) is unaffected.
+      # releaseId (no tagName) makes tauri-action upload to the pre-created draft
+      # instead of creating its own release, which avoids the parallel-create race.
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: crates/yande-dl-tauri
-          args: --target ${{ matrix.target }}
-          tagName: ${{ github.ref_name }}
-          releaseName: "yande-dl ${{ github.ref_name }}"
-          releaseDraft: true
-          prerelease: false
+          args: '--target ${{ matrix.target }} --config {"build":{"beforeBuildCommand":"pnpm --dir ../../ui build"}}'
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+
+  publish:
+    name: Publish release
+    needs: [version, build]
+    runs-on: ubuntu-22.04
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false

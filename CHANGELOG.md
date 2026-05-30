@@ -6,6 +6,25 @@ on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-30
+
+Drill-down browsing and bulk operations on top of the v0.1 core.
+
+### Added
+
+- **Tag detail page** — drill into a subscription for a paginated preview grid of
+  matching posts, with multi-select, "download selected," and "download all"
+  (paginate from page 1 until results run out). Includes select-all / deselect-all.
+- **Display name / alias** — give a subscription a friendly label; the UI falls
+  back to the tag when empty. Dedup keying and folder names still use the
+  normalized tag, so aliases never affect on-disk layout.
+- **Batch update** — "Update all" runs every subscription in sequence under one
+  batch with live progress and a "Stop all" control; the in-progress batch
+  survives a UI remount so progress is restored on return.
+- **Open in browser** — open a post or a tag's listing on the source site
+  (Yande.re / Konachan) directly.
+- **Downloaded file count** — per-subscription count of files already on disk.
+
 ## [0.1.0] - 2026-05-08
 
 Initial public release. The "narrow but correct" cut.
@@ -55,5 +74,6 @@ Initial public release. The "narrow but correct" cut.
 - Always downloads the original variant. JPG-mode (without MD5 verification)
   is planned for v0.2.
 
-[Unreleased]: https://github.com/KenDev099/yande-dl/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/KenDev099/yande-dl/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/KenDev099/yande-dl/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/KenDev099/yande-dl/releases/tag/v0.1.0

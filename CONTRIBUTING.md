@@ -60,6 +60,35 @@ docs/spec-v6.md        # design spec — read this before adding features
 - Update `docs/spec-v6.md` if you change a documented invariant.
 - Use Conventional-style messages where natural (`feat:`, `fix:`, `chore:`).
 
+## Releasing
+
+Every push to `main` runs `.github/workflows/release.yml`, which reads the
+version from `crates/yande-dl-tauri/tauri.conf.json`, builds for macOS
+arm64/x64, Linux x64, and Windows x64, and publishes a GitHub Release tagged
+`v<version>` with all artifacts attached. To cut a new release:
+
+```bash
+pnpm bump 0.2.0                                      # syncs 4 version files
+# update CHANGELOG.md
+git add -A && git commit -m "chore: release v0.2.0"
+git push                                             # main -> builds + publishes
+```
+
+`pnpm bump` writes the new version into `Cargo.toml` (workspace), root
+`package.json`, `ui/package.json`, and `crates/yande-dl-tauri/tauri.conf.json`.
+All crates inherit via `version.workspace = true`. The workflow creates the
+`v<version>` tag for you — no manual `git tag` needed.
+
+Versions containing `-` (e.g. `0.2.0-beta.1`) are auto-marked as prereleases.
+
+The release is created as a draft and is flipped to public only after all four
+platform builds succeed, so external users never see a half-built release. If a
+platform fails, fix it and re-run — the release stays a draft until complete.
+
+Pushes that keep the same version refresh that release's binaries in place (the
+`v<version>` tag stays at the commit where the version was first created); bump
+the version for a clean, separately-tagged release.
+
 ## Adding a new provider
 
 1. Implement `ImageProvider` in `crates/yande-dl-providers/src/<name>.rs`.
