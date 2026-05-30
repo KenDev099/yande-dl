@@ -13,6 +13,11 @@
     <strong>繁體中文</strong> ·
     <a href="README.zh-CN.md">简体中文</a>
   </p>
+
+  <p>
+    <a href="https://github.com/KenDev099/yande-dl/releases/latest"><img src="https://img.shields.io/github/v/release/KenDev099/yande-dl?sort=semver" alt="最新版本" /></a>
+    <a href="https://github.com/KenDev099/yande-dl/releases"><img src="https://img.shields.io/github/downloads/KenDev099/yande-dl/total" alt="總下載次數" /></a>
+  </p>
 </div>
 
 ---
@@ -34,14 +39,15 @@
 
 ## 安裝
 
-至 [Releases](https://github.com/KenDev099/yande-dl/releases) 下載對應版本:
+至[最新版本 Releases](https://github.com/KenDev099/yande-dl/releases/latest) 下載對應版本:
 
 - macOS:`yande-dl_<ver>_aarch64.dmg` / `_x64.dmg`
 - Windows:`yande-dl_<ver>_x64-setup.exe`
 - Linux:`yande-dl_<ver>_amd64.deb` / `.AppImage`
 
-> **v0.1 為未簽署版本** — macOS 首次開啟需在「系統設定 → 隱私權與安全性」按允許。
-> 程式簽署將於 v0.2 啟用。
+> **未簽署版本** — 程式簽署將於後續版本啟用。首次開啟:macOS 對 App 按右鍵 →「開啟」→ 確認
+> (或執行 `xattr -dr com.apple.quarantine /Applications/yande-dl.app`);Windows 上 SmartScreen
+> →「其他資訊」→「仍要執行」。
 
 ### 從原始碼建置
 

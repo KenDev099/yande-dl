@@ -13,6 +13,11 @@
     <a href="README.zh-TW.md">繁體中文</a> ·
     <a href="README.zh-CN.md">简体中文</a>
   </p>
+
+  <p>
+    <a href="https://github.com/KenDev099/yande-dl/releases/latest"><img src="https://img.shields.io/github/v/release/KenDev099/yande-dl?sort=semver" alt="Latest release" /></a>
+    <a href="https://github.com/KenDev099/yande-dl/releases"><img src="https://img.shields.io/github/downloads/KenDev099/yande-dl/total" alt="Total downloads" /></a>
+  </p>
 </div>
 
 ---
@@ -35,14 +40,16 @@
 
 ## Installation
 
-Download a build from [Releases](https://github.com/KenDev099/yande-dl/releases):
+Download a build from the [latest release](https://github.com/KenDev099/yande-dl/releases/latest):
 
 - macOS: `yande-dl_<ver>_aarch64.dmg` / `_x64.dmg`
 - Windows: `yande-dl_<ver>_x64-setup.exe`
 - Linux: `yande-dl_<ver>_amd64.deb` / `.AppImage`
 
-> **Unsigned binaries** for v0.1 — first launch on macOS may require approval in
-> System Settings → Privacy & Security. Code signing arrives in v0.2.
+> **Unsigned binaries** — code signing arrives in a later release. First launch:
+> on macOS, right-click the app → **Open** → confirm (or run
+> `xattr -dr com.apple.quarantine /Applications/yande-dl.app`); on Windows,
+> SmartScreen → **More info** → **Run anyway**.
 
 ### Build from source
 
