@@ -2,15 +2,19 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  CheckSquare,
   Download,
+  ExternalLink,
   Eye,
   FolderOpen,
   Image as ImageIcon,
   Pencil,
   Plus,
   RefreshCw,
+  Square,
   Trash2,
   X,
 } from "lucide-react";
@@ -40,11 +44,23 @@ export function TagDetailPage() {
   const [previewJobId, setPreviewJobId] = useState<string | null>(null);
   const [previewPage, setPreviewPage] = useState<number>(0);
   const [previewLoading, setPreviewLoading] = useState(false);
+  // hasMore tracks whether the last fetched page came back full (== limit).
+  // A non-full page == no next page (matches run_job's termination rule).
+  const [previewHasMore, setPreviewHasMore] = useState<boolean>(false);
 
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [downloadingSelected, setDownloadingSelected] = useState(false);
 
   const sub = subscriptions?.find((s) => s.id === id);
+
+  // Disk-truth count: re-runs whenever lastRunAt changes (after any job
+  // completes, including selected downloads). Replaces the legacy
+  // total_downloaded counter which drifted under repeated runs.
+  const { data: downloadedCount } = useQuery({
+    queryKey: ["downloadedCount", sub?.id, sub?.lastRunAt],
+    queryFn: () => ipc.subscriptions.countDownloaded(sub!.id),
+    enabled: !!sub,
+  });
 
   if (isLoading) {
     return (
@@ -103,7 +119,8 @@ export function TagDetailPage() {
         nextPage ? previewJobId ?? undefined : undefined,
       );
       setPreviewJobId(resp.jobId);
-      setPreviewPage(page);
+      setPreviewPage(resp.page);
+      setPreviewHasMore(resp.hasMore);
     } catch (e) {
       toast.error(t("tagDetail.previewError", { error: String(e) }));
     } finally {
@@ -121,6 +138,22 @@ export function TagDetailPage() {
   };
 
   const clearSelection = () => setSelected(new Set());
+
+  const toggleSelectAll = () => {
+    if (selected.size === posts.length && posts.length > 0) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(posts.map((p) => p.postId)));
+    }
+  };
+
+  const openTagPage = async () => {
+    try {
+      await ipc.system.openTagUrl(sub.provider, sub.normalizedTag);
+    } catch (e) {
+      toast.error(String(e));
+    }
+  };
 
   const downloadSelected = async () => {
     if (selected.size === 0) return;
@@ -186,13 +219,22 @@ export function TagDetailPage() {
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
             {t("subscriptions.cardDownloaded", {
-              count: sub.totalDownloaded,
+              count: downloadedCount ?? 0,
             })}{" "}
             · {lastRunDisplay}
             {posts.length > 0 && (
               <>
                 {" · "}
                 {t("tagDetail.currentJobLabel", { count: posts.length })}
+              </>
+            )}
+            {previewJobId !== null && previewPage > 0 && (
+              <>
+                {" · "}
+                {t("tagDetail.previewPageInfo", { page: previewPage })}
+                {!previewHasMore && (
+                  <> · {t("tagDetail.endOfPages")}</>
+                )}
               </>
             )}
           </p>
@@ -210,29 +252,23 @@ export function TagDetailPage() {
               ? t("tagDetail.previewLoading")
               : t("tagDetail.preview")}
           </Button>
-          {hasBaseline ? (
+          <Button
+            size="sm"
+            onClick={() => startDownload(false)}
+            title={t("tagDetail.downloadAllTooltip")}
+          >
+            <Download className="mr-1 h-3.5 w-3.5" />
+            {t("tagDetail.downloadAll")}
+          </Button>
+          {hasBaseline && (
             <Button
               size="sm"
+              variant="outline"
               onClick={() => startDownload(true)}
               title={t("subscriptions.cardUpdateTooltip")}
             >
               <RefreshCw className="mr-1 h-3.5 w-3.5" />
               {t("subscriptions.cardUpdate")}
-            </Button>
-          ) : (
-            <Button size="sm" onClick={() => startDownload(false)}>
-              <Download className="mr-1 h-3.5 w-3.5" />
-              {t("subscriptions.cardDownload")}
-            </Button>
-          )}
-          {hasBaseline && (
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => startDownload(false)}
-              title={t("subscriptions.cardRefetch")}
-            >
-              <Download className="h-4 w-4" />
             </Button>
           )}
           <Button
@@ -250,6 +286,14 @@ export function TagDetailPage() {
             title={t("subscriptions.cardOpenFolder")}
           >
             <FolderOpen className="h-4 w-4" />
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={openTagPage}
+            title={t("tagDetail.openTagPage")}
+          >
+            <ExternalLink className="h-4 w-4" />
           </Button>
           <Button
             size="icon"
@@ -273,6 +317,25 @@ export function TagDetailPage() {
         </div>
       ) : (
         <>
+          <div className="mb-3 flex items-center justify-end">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={toggleSelectAll}
+            >
+              {selected.size === posts.length ? (
+                <>
+                  <Square className="mr-1 h-3.5 w-3.5" />
+                  {t("tagDetail.deselectAll")}
+                </>
+              ) : (
+                <>
+                  <CheckSquare className="mr-1 h-3.5 w-3.5" />
+                  {t("tagDetail.selectAll", { count: posts.length })}
+                </>
+              )}
+            </Button>
+          </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
             {posts.map((p) => (
               <PostThumbnail
@@ -290,12 +353,14 @@ export function TagDetailPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => runPreview(true)}
-                disabled={previewLoading}
+                disabled={previewLoading || !previewHasMore}
               >
                 <Plus className="mr-1 h-3.5 w-3.5" />
                 {previewLoading
                   ? t("tagDetail.previewLoading")
-                  : t("tagDetail.loadMore", { next: previewPage + 1 })}
+                  : !previewHasMore
+                    ? t("tagDetail.endOfPages")
+                    : t("tagDetail.loadMore", { next: previewPage + 1 })}
               </Button>
             </div>
           )}

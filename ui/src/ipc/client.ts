@@ -3,7 +3,9 @@ import type {
   ActiveJobDto,
   ImportMode,
   ImportReport,
+  PreviewResp,
   Settings,
+  StartBatchResp,
   StartDownloadResp,
   SubscriptionDto,
 } from "./types";
@@ -26,6 +28,8 @@ export const ipc = {
     export: (dest: string) => invoke<void>("export_subscriptions", { dest }),
     import: (source: string, mode: ImportMode) =>
       invoke<ImportReport>("import_subscriptions", { source, mode }),
+    countDownloaded: (subscriptionId: string) =>
+      invoke<number>("count_downloaded_files", { subscriptionId }),
   },
   download: {
     start: (subscriptionId: string, incremental: boolean) =>
@@ -33,10 +37,15 @@ export const ipc = {
         subscriptionId,
         incremental,
       }),
+    startAll: (incremental: boolean) =>
+      invoke<StartBatchResp>("start_download_all", { incremental }),
     cancel: (jobId: string) => invoke<void>("cancel_job", { jobId }),
+    cancelAll: () => invoke<void>("cancel_all_jobs"),
+    getActiveBatch: () =>
+      invoke<StartBatchResp | null>("get_active_batch"),
     listActive: () => invoke<ActiveJobDto[]>("list_active_jobs"),
     preview: (subscriptionId: string, page?: number, jobId?: string) =>
-      invoke<StartDownloadResp>("preview_subscription", {
+      invoke<PreviewResp>("preview_subscription", {
         subscriptionId,
         page: page ?? 1,
         jobId: jobId ?? null,
@@ -57,5 +66,7 @@ export const ipc = {
     openUrl: (url: string) => invoke<void>("open_url", { url }),
     openPostUrl: (provider: string, postId: number) =>
       invoke<void>("open_post_url", { provider, postId }),
+    openTagUrl: (provider: string, normalizedTag: string) =>
+      invoke<void>("open_tag_url", { provider, normalizedTag }),
   },
 };

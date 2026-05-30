@@ -29,16 +29,21 @@ pub fn run() {
             commands::subscriptions::remove_subscription,
             commands::subscriptions::export_subscriptions,
             commands::subscriptions::import_subscriptions,
+            commands::subscriptions::count_downloaded_files,
             commands::download::start_download,
+            commands::download::start_download_all,
             commands::download::preview_subscription,
             commands::download::download_selected_posts,
             commands::download::cancel_job,
+            commands::download::cancel_all_jobs,
+            commands::download::get_active_batch,
             commands::download::list_active_jobs,
             commands::settings::get_settings,
             commands::settings::update_settings,
             commands::system::open_folder,
             commands::system::open_url,
             commands::system::open_post_url,
+            commands::system::open_tag_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

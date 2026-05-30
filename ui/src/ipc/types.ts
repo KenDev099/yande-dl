@@ -7,7 +7,6 @@ export interface SubscriptionDto {
   displayName: string | null;
   lastRunAt: number | null;
   lastSeenPostId: number;
-  totalDownloaded: number;
   createdAt: number;
 }
 
@@ -95,6 +94,32 @@ export interface Settings {
 
 export interface StartDownloadResp {
   jobId: string;
+}
+
+export interface PreviewResp {
+  jobId: string;
+  page: number;
+  returned: number;
+  hasMore: boolean;
+}
+
+export interface StartBatchResp {
+  batchId: string;
+  total: number;
+}
+
+export interface BatchProgressEvent {
+  batchId: string;
+  currentIndex: number;
+  total: number;
+  currentSubscriptionId: string | null;
+}
+
+export interface BatchCompletedEvent {
+  batchId: string;
+  processed: number;
+  total: number;
+  cancelled: boolean;
 }
 
 export type ImportMode = "replace" | "merge";

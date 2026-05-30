@@ -57,3 +57,21 @@ pub async fn open_post_url(
         .open_url(url, None::<&str>)
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn open_tag_url(
+    app: AppHandle,
+    provider: String,
+    normalized_tag: String,
+) -> Result<(), String> {
+    let base = match provider.as_str() {
+        "yande" => "https://yande.re/post",
+        "konachan" => "https://konachan.com/post",
+        _ => return Err(format!("unknown provider: {}", provider)),
+    };
+    let mut url = reqwest::Url::parse(base).map_err(|e| e.to_string())?;
+    url.query_pairs_mut().append_pair("tags", &normalized_tag);
+    app.opener()
+        .open_url(url.to_string(), None::<&str>)
+        .map_err(|e| e.to_string())
+}

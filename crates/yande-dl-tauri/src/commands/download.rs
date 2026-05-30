@@ -1,25 +1,47 @@
 use crate::events::{
-    DownloadCompletedEvent, DownloadProgressEvent, NotificationEvent, PostStatusUpdateEvent,
-    PostsDiscoveredEvent, EVENT_DOWNLOAD_COMPLETED, EVENT_DOWNLOAD_PROGRESS, EVENT_NOTIFICATION,
+    BatchCompletedEvent, BatchProgressEvent, DownloadCompletedEvent, DownloadProgressEvent,
+    NotificationEvent, PostStatusUpdateEvent, PostsDiscoveredEvent, EVENT_BATCH_COMPLETED,
+    EVENT_BATCH_PROGRESS, EVENT_DOWNLOAD_COMPLETED, EVENT_DOWNLOAD_PROGRESS, EVENT_NOTIFICATION,
     EVENT_POSTS_DISCOVERED, EVENT_POST_STATUS,
 };
-use crate::state::{ActiveJob, AppState};
+use crate::state::{ActiveBatch, ActiveJob, AppState};
 use futures::stream::{FuturesUnordered, StreamExt};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
-use yande_dl_config::Settings;
+use yande_dl_config::{Settings, Subscription, TagsStore};
 use yande_dl_core::downloader::{DownloadStatus, Downloader};
 use yande_dl_core::job::{run_job, DownloadJob, JobMessage, JobProgress, PostInfo, PostStatus};
 use yande_dl_core::model::{Rating, SearchQuery};
+use yande_dl_core::provider::ImageProvider;
 use yande_dl_core::sanitize::normalize_tag;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartDownloadResp {
     pub job_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartBatchResp {
+    pub batch_id: String,
+    pub total: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewResp {
+    pub job_id: String,
+    pub page: u32,
+    pub returned: u32,
+    /// `true` when this page came back full (== limit). A non-full page
+    /// means the next page would be empty — same termination rule
+    /// `run_job` uses, with one fewer API call.
+    pub has_more: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -66,6 +88,175 @@ fn make_blacklist(blacklist: Vec<String>) -> impl Fn(&[String]) -> bool + Send +
     }
 }
 
+/// Run one subscription's download to completion. Used by both `start_download`
+/// (single ad-hoc trigger; wrapped in `tokio::spawn` so the command returns
+/// immediately) and `start_download_all` (sequential batch; awaited in the
+/// orchestrator loop).
+///
+/// Why this is one async fn instead of two `tokio::spawn`s: the orchestrator
+/// must know when each job finishes before starting the next. Splitting into
+/// fire-and-forget spawns made batch sequencing impossible to express.
+#[allow(clippy::too_many_arguments)]
+async fn run_single_download(
+    tags: Arc<TagsStore>,
+    active_jobs: Arc<Mutex<HashMap<String, ActiveJob>>>,
+    http_client: reqwest::Client,
+    provider: Arc<dyn ImageProvider>,
+    settings: Settings,
+    app: AppHandle,
+    sub: Subscription,
+    incremental: bool,
+    job_id: String,
+    cancel: CancellationToken,
+) {
+    let download_root = match settings.download_root.clone() {
+        Some(p) => p,
+        None => {
+            let _ = app.emit(
+                EVENT_NOTIFICATION,
+                NotificationEvent::error("download root is not set"),
+            );
+            return;
+        }
+    };
+
+    let downloader = Arc::new(Downloader::new(
+        http_client,
+        settings.concurrency.max(1) as usize,
+        download_root,
+        settings.min_delay_ms,
+    ));
+
+    let mut job = DownloadJob::new(provider, sub.tag.clone());
+    if incremental {
+        job.since_post_id = Some(sub.last_seen_post_id);
+    }
+    job.query_extra.ratings = ratings_from_settings(&settings);
+
+    // Capacity 128: per-post events (PostsDiscovered + PostStatus) cannot be
+    // dropped or the thumbnail grid loses state. Burst per page ~50 posts × 2
+    // transitions ≈ 100; 128 gives 1.3x headroom.
+    let (progress_tx, mut progress_rx) = mpsc::channel::<JobMessage>(128);
+
+    {
+        let mut active = active_jobs.lock().await;
+        active.insert(
+            job_id.clone(),
+            ActiveJob {
+                job_id: job_id.clone(),
+                subscription_id: sub.id.clone(),
+                raw_tag: sub.tag.clone(),
+                progress: JobProgress::default(),
+                cancel: cancel.clone(),
+            },
+        );
+    }
+
+    let blacklist_match = make_blacklist(settings.blacklist.clone());
+
+    // Forward progress events. Demux JobMessage → 3 different Tauri events.
+    // Exits when progress_rx closes, which happens when run_job drops
+    // progress_tx at the end of the run.
+    let app_pf = app.clone();
+    let job_id_pf = job_id.clone();
+    let sub_id_pf = sub.id.clone();
+    let active_jobs_pf = active_jobs.clone();
+    let forwarder = tokio::spawn(async move {
+        while let Some(msg) = progress_rx.recv().await {
+            match msg {
+                JobMessage::PageProgress(progress) => {
+                    {
+                        let mut active = active_jobs_pf.lock().await;
+                        if let Some(job) = active.get_mut(&job_id_pf) {
+                            job.progress = progress.clone();
+                        }
+                    }
+                    let _ = app_pf.emit(
+                        EVENT_DOWNLOAD_PROGRESS,
+                        DownloadProgressEvent {
+                            job_id: job_id_pf.clone(),
+                            subscription_id: sub_id_pf.clone(),
+                            current_page: progress.current_page,
+                            fetched: progress.fetched,
+                            saved: progress.saved,
+                            skipped: progress.skipped,
+                            failed: progress.failed,
+                            cancelled: progress.cancelled,
+                        },
+                    );
+                }
+                JobMessage::PostsDiscovered(posts) => {
+                    let _ = app_pf.emit(
+                        EVENT_POSTS_DISCOVERED,
+                        PostsDiscoveredEvent {
+                            job_id: job_id_pf.clone(),
+                            subscription_id: sub_id_pf.clone(),
+                            posts,
+                        },
+                    );
+                }
+                JobMessage::PostStatus(ev) => {
+                    let _ = app_pf.emit(
+                        EVENT_POST_STATUS,
+                        PostStatusUpdateEvent {
+                            job_id: job_id_pf.clone(),
+                            subscription_id: sub_id_pf.clone(),
+                            post_id: ev.post_id,
+                            status: ev.status,
+                        },
+                    );
+                }
+            }
+        }
+    });
+
+    let outcome_result = run_job(job, downloader, blacklist_match, progress_tx, cancel).await;
+
+    // Drain the forwarder before continuing — guarantees the last progress
+    // events reach the UI before EVENT_DOWNLOAD_COMPLETED.
+    let _ = forwarder.await;
+
+    {
+        let mut active = active_jobs.lock().await;
+        active.remove(&job_id);
+    }
+
+    match outcome_result {
+        Ok(outcome) => {
+            if let Err(e) = tags
+                .update_after_run(&sub.id, outcome.safe_last_post_id)
+                .await
+            {
+                tracing::error!("update_after_run failed: {}", e);
+                let _ = app.emit(
+                    EVENT_NOTIFICATION,
+                    NotificationEvent::warning(format!("could not save baseline: {}", e)),
+                );
+            }
+
+            let _ = app.emit(
+                EVENT_DOWNLOAD_COMPLETED,
+                DownloadCompletedEvent {
+                    job_id,
+                    subscription_id: sub.id,
+                    total_saved: outcome.progress.saved,
+                    total_skipped: outcome.progress.skipped,
+                    total_failed: outcome.progress.failed,
+                    total_cancelled: outcome.progress.cancelled,
+                    safe_last_post_id: outcome.safe_last_post_id,
+                },
+            );
+        }
+        Err(e) => {
+            tracing::error!("job failed: {}", e);
+            let _ = app.emit(
+                EVENT_NOTIFICATION,
+                NotificationEvent::error(format!("download failed: {}", e)),
+            );
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn start_download(
     state: State<'_, AppState>,
@@ -76,9 +267,8 @@ pub async fn start_download(
     let tags_file = state.tags.load().await.map_err(|e| e.to_string())?;
     let sub = tags_file
         .subscriptions
-        .iter()
+        .into_iter()
         .find(|s| s.id == subscription_id)
-        .cloned()
         .ok_or_else(|| "subscription not found".to_string())?;
 
     {
@@ -95,156 +285,159 @@ pub async fn start_download(
         .ok_or_else(|| format!("unknown provider: {}", sub.provider))?;
 
     let settings = state.settings.load().await.map_err(|e| e.to_string())?;
-    let download_root = settings
-        .download_root
-        .clone()
-        .ok_or_else(|| "download root is not set".to_string())?;
-
-    let downloader = Arc::new(Downloader::new(
-        state.http_client.clone(),
-        settings.concurrency.max(1) as usize,
-        download_root,
-        settings.min_delay_ms,
-    ));
-
-    let mut job = DownloadJob::new(provider, sub.tag.clone());
-    if incremental {
-        job.since_post_id = Some(sub.last_seen_post_id);
+    if settings.download_root.is_none() {
+        return Err("download root is not set".into());
     }
-    job.query_extra.ratings = ratings_from_settings(&settings);
 
     let job_id = uuid::Uuid::new_v4().to_string();
     let cancel = CancellationToken::new();
-    // Capacity 128: per-post events (PostsDiscovered + PostStatus) cannot be
-    // dropped or the thumbnail grid loses state. Burst per page ~50 posts × 2
-    // transitions ≈ 100; 128 gives 1.3x headroom.
-    let (progress_tx, mut progress_rx) = mpsc::channel::<JobMessage>(128);
 
-    {
-        let mut active = state.active_jobs.lock().await;
-        active.insert(
-            job_id.clone(),
-            ActiveJob {
-                job_id: job_id.clone(),
-                subscription_id: sub.id.clone(),
-                raw_tag: sub.tag.clone(),
-                progress: JobProgress::default(),
-                cancel: cancel.clone(),
-            },
-        );
-    }
-
-    let blacklist_match = make_blacklist(settings.blacklist.clone());
-
-    // Forward progress events. Demux JobMessage → 3 different Tauri events.
-    let app_for_progress = app.clone();
-    let job_id_for_progress = job_id.clone();
-    let sub_id_for_progress = sub.id.clone();
-    let active_jobs_for_progress = state.active_jobs.clone();
-    tokio::spawn(async move {
-        while let Some(msg) = progress_rx.recv().await {
-            match msg {
-                JobMessage::PageProgress(progress) => {
-                    {
-                        let mut active = active_jobs_for_progress.lock().await;
-                        if let Some(job) = active.get_mut(&job_id_for_progress) {
-                            job.progress = progress.clone();
-                        }
-                    }
-                    let _ = app_for_progress.emit(
-                        EVENT_DOWNLOAD_PROGRESS,
-                        DownloadProgressEvent {
-                            job_id: job_id_for_progress.clone(),
-                            subscription_id: sub_id_for_progress.clone(),
-                            current_page: progress.current_page,
-                            fetched: progress.fetched,
-                            saved: progress.saved,
-                            skipped: progress.skipped,
-                            failed: progress.failed,
-                            cancelled: progress.cancelled,
-                        },
-                    );
-                }
-                JobMessage::PostsDiscovered(posts) => {
-                    let _ = app_for_progress.emit(
-                        EVENT_POSTS_DISCOVERED,
-                        PostsDiscoveredEvent {
-                            job_id: job_id_for_progress.clone(),
-                            subscription_id: sub_id_for_progress.clone(),
-                            posts,
-                        },
-                    );
-                }
-                JobMessage::PostStatus(ev) => {
-                    let _ = app_for_progress.emit(
-                        EVENT_POST_STATUS,
-                        PostStatusUpdateEvent {
-                            job_id: job_id_for_progress.clone(),
-                            subscription_id: sub_id_for_progress.clone(),
-                            post_id: ev.post_id,
-                            status: ev.status,
-                        },
-                    );
-                }
-            }
-        }
-    });
-
-    let app_for_completion = app.clone();
-    let active_jobs_for_completion = state.active_jobs.clone();
-    let tags_store = state.tags.clone();
-    let job_id_for_completion = job_id.clone();
-    let sub_id_for_completion = sub.id.clone();
+    let tags = state.tags.clone();
+    let active_jobs = state.active_jobs.clone();
+    let http_client = state.http_client.clone();
+    let job_id_clone = job_id.clone();
 
     tokio::spawn(async move {
-        let outcome_result = run_job(job, downloader, blacklist_match, progress_tx, cancel).await;
-
-        {
-            let mut active = active_jobs_for_completion.lock().await;
-            active.remove(&job_id_for_completion);
-        }
-
-        match outcome_result {
-            Ok(outcome) => {
-                if let Err(e) = tags_store
-                    .update_after_run(
-                        &sub_id_for_completion,
-                        outcome.safe_last_post_id,
-                        outcome.progress.saved as u64,
-                    )
-                    .await
-                {
-                    tracing::error!("update_after_run failed: {}", e);
-                    let _ = app_for_completion.emit(
-                        EVENT_NOTIFICATION,
-                        NotificationEvent::warning(format!("could not save baseline: {}", e)),
-                    );
-                }
-
-                let _ = app_for_completion.emit(
-                    EVENT_DOWNLOAD_COMPLETED,
-                    DownloadCompletedEvent {
-                        job_id: job_id_for_completion,
-                        subscription_id: sub_id_for_completion,
-                        total_saved: outcome.progress.saved,
-                        total_skipped: outcome.progress.skipped,
-                        total_failed: outcome.progress.failed,
-                        total_cancelled: outcome.progress.cancelled,
-                        safe_last_post_id: outcome.safe_last_post_id,
-                    },
-                );
-            }
-            Err(e) => {
-                tracing::error!("job failed: {}", e);
-                let _ = app_for_completion.emit(
-                    EVENT_NOTIFICATION,
-                    NotificationEvent::error(format!("download failed: {}", e)),
-                );
-            }
-        }
+        run_single_download(
+            tags,
+            active_jobs,
+            http_client,
+            provider,
+            settings,
+            app,
+            sub,
+            incremental,
+            job_id_clone,
+            cancel,
+        )
+        .await;
     });
 
     Ok(StartDownloadResp { job_id })
+}
+
+/// Run every subscription in series. Cancelling this batch (via
+/// `cancel_all_jobs`) interrupts the in-flight job and stops the loop.
+#[tauri::command]
+pub async fn start_download_all(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    incremental: bool,
+) -> Result<StartBatchResp, String> {
+    {
+        let batch = state.active_batch.lock().await;
+        if batch.is_some() {
+            return Err("a batch update is already running".into());
+        }
+    }
+
+    let tags_file = state.tags.load().await.map_err(|e| e.to_string())?;
+    let subs = tags_file.subscriptions;
+    let total = subs.len() as u32;
+    if total == 0 {
+        return Err("no subscriptions to update".into());
+    }
+
+    let settings = state.settings.load().await.map_err(|e| e.to_string())?;
+    if settings.download_root.is_none() {
+        return Err("download root is not set".into());
+    }
+
+    let batch_id = uuid::Uuid::new_v4().to_string();
+    let batch_cancel = CancellationToken::new();
+
+    {
+        let mut batch = state.active_batch.lock().await;
+        *batch = Some(ActiveBatch {
+            batch_id: batch_id.clone(),
+            total,
+            cancel: batch_cancel.clone(),
+        });
+    }
+
+    let tags = state.tags.clone();
+    let active_jobs = state.active_jobs.clone();
+    let active_batch = state.active_batch.clone();
+    let http_client = state.http_client.clone();
+    let providers = state.providers.clone();
+    let batch_id_for_task = batch_id.clone();
+    let app_clone = app.clone();
+
+    tokio::spawn(async move {
+        let mut processed = 0u32;
+
+        for (idx, sub) in subs.into_iter().enumerate() {
+            if batch_cancel.is_cancelled() {
+                break;
+            }
+
+            // Skip subs with no matching provider rather than aborting — the
+            // user may have edited tags.json by hand and the rest are valid.
+            let provider = match providers.get(&sub.provider).cloned() {
+                Some(p) => p,
+                None => {
+                    tracing::warn!("skipping unknown provider: {}", sub.provider);
+                    continue;
+                }
+            };
+
+            // Skip if this subscription is already being downloaded (e.g. user
+            // manually triggered it just before "Update all").
+            {
+                let active = active_jobs.lock().await;
+                if active.values().any(|j| j.subscription_id == sub.id) {
+                    continue;
+                }
+            }
+
+            let _ = app_clone.emit(
+                EVENT_BATCH_PROGRESS,
+                BatchProgressEvent {
+                    batch_id: batch_id_for_task.clone(),
+                    current_index: idx as u32,
+                    total,
+                    current_subscription_id: Some(sub.id.clone()),
+                },
+            );
+
+            let job_cancel = batch_cancel.child_token();
+            let job_id = uuid::Uuid::new_v4().to_string();
+
+            run_single_download(
+                tags.clone(),
+                active_jobs.clone(),
+                http_client.clone(),
+                provider,
+                settings.clone(),
+                app_clone.clone(),
+                sub,
+                incremental,
+                job_id,
+                job_cancel,
+            )
+            .await;
+
+            processed += 1;
+        }
+
+        let cancelled = batch_cancel.is_cancelled();
+        {
+            let mut batch = active_batch.lock().await;
+            *batch = None;
+        }
+
+        let _ = app_clone.emit(
+            EVENT_BATCH_COMPLETED,
+            BatchCompletedEvent {
+                batch_id: batch_id_for_task,
+                processed,
+                total,
+                cancelled,
+            },
+        );
+    });
+
+    Ok(StartBatchResp { batch_id, total })
 }
 
 #[tauri::command]
@@ -258,6 +451,34 @@ pub async fn cancel_job(state: State<'_, AppState>, job_id: String) -> Result<()
     }
 }
 
+/// Cancel the active batch (if any) and every currently-running per-job token.
+/// Idempotent: returns Ok even when there's nothing to cancel.
+#[tauri::command]
+pub async fn cancel_all_jobs(state: State<'_, AppState>) -> Result<(), String> {
+    {
+        let batch = state.active_batch.lock().await;
+        if let Some(b) = batch.as_ref() {
+            b.cancel.cancel();
+        }
+    }
+    let active = state.active_jobs.lock().await;
+    for job in active.values() {
+        job.cancel.cancel();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_active_batch(
+    state: State<'_, AppState>,
+) -> Result<Option<StartBatchResp>, String> {
+    let batch = state.active_batch.lock().await;
+    Ok(batch.as_ref().map(|b| StartBatchResp {
+        batch_id: b.batch_id.clone(),
+        total: b.total,
+    }))
+}
+
 /// Run a paginated search without downloading. Emits `PostsDiscovered` per page
 /// so the frontend grid can render thumbnails, and caches full `Post` objects in
 /// `state.recent_posts` for later use by `download_selected_posts`.
@@ -268,7 +489,7 @@ pub async fn preview_subscription(
     subscription_id: String,
     page: Option<u32>,
     job_id: Option<String>,
-) -> Result<StartDownloadResp, String> {
+) -> Result<PreviewResp, String> {
     let tags_file = state.tags.load().await.map_err(|e| e.to_string())?;
     let sub = tags_file
         .subscriptions
@@ -352,7 +573,13 @@ pub async fn preview_subscription(
         },
     );
 
-    Ok(StartDownloadResp { job_id })
+    let returned = posts.len() as u32;
+    Ok(PreviewResp {
+        job_id,
+        page,
+        returned,
+        has_more: returned == q.limit,
+    })
 }
 
 /// Download a user-selected subset of posts from `recent_posts` cache.
@@ -515,11 +742,8 @@ pub async fn download_selected_posts(
             active.remove(&job_id_clone);
         }
 
-        if let Err(e) = tags_store
-            .bump_downloaded_count(&sub_id_clone, progress.saved as u64)
-            .await
-        {
-            tracing::error!("bump_downloaded_count failed: {}", e);
+        if let Err(e) = tags_store.touch_last_run_at(&sub_id_clone).await {
+            tracing::error!("touch_last_run_at failed: {}", e);
         }
 
         let _ = app_clone.emit(

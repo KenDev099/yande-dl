@@ -3,6 +3,8 @@ use serde::Serialize;
 use std::path::PathBuf;
 use tauri::State;
 use yande_dl_config::{ImportMode, ImportReport, Subscription};
+use yande_dl_core::downloader::Downloader;
+use yande_dl_core::sanitize::normalize_tag;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -15,7 +17,6 @@ pub struct SubscriptionDto {
     pub display_name: Option<String>,
     pub last_run_at: Option<i64>,
     pub last_seen_post_id: i64,
-    pub total_downloaded: u64,
     pub created_at: i64,
 }
 
@@ -30,7 +31,6 @@ impl SubscriptionDto {
             display_name: sub.display_name,
             last_run_at: sub.last_run_at,
             last_seen_post_id: sub.last_seen_post_id,
-            total_downloaded: sub.total_downloaded,
             created_at: sub.created_at,
         }
     }
@@ -116,4 +116,31 @@ pub async fn import_subscriptions(
         .import_from(&source, mode)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Count of files already on disk for this subscription. This is the truthful
+/// answer (per invariant #1: filesystem is the source of truth) and replaces
+/// the legacy `total_downloaded` counter which drifted under repeated runs.
+#[tauri::command]
+pub async fn count_downloaded_files(
+    state: State<'_, AppState>,
+    subscription_id: String,
+) -> Result<u64, String> {
+    let file = state.tags.load().await.map_err(|e| e.to_string())?;
+    let sub = file
+        .subscriptions
+        .into_iter()
+        .find(|s| s.id == subscription_id)
+        .ok_or_else(|| "subscription not found".to_string())?;
+
+    let settings = state.settings.load().await.map_err(|e| e.to_string())?;
+    let root = match settings.download_root {
+        Some(p) => p,
+        None => return Ok(0),
+    };
+
+    let folder = Downloader::new(state.http_client.clone(), 1, root, 0)
+        .folder_path(&sub.provider, &normalize_tag(&sub.tag));
+    let ids = Downloader::scan_existing_post_ids(&folder, &sub.provider).await;
+    Ok(ids.len() as u64)
 }

@@ -16,12 +16,22 @@ pub struct ActiveJob {
     pub cancel: CancellationToken,
 }
 
+/// In-flight "update all" run. Cancelling this token also cancels the
+/// currently running per-sub job (orchestrator passes a child token).
+#[derive(Debug, Clone)]
+pub struct ActiveBatch {
+    pub batch_id: String,
+    pub total: u32,
+    pub cancel: CancellationToken,
+}
+
 pub struct AppState {
     pub tags: Arc<TagsStore>,
     pub settings: Arc<SettingsStore>,
     pub providers: HashMap<String, Arc<dyn ImageProvider>>,
     pub http_client: reqwest::Client,
     pub active_jobs: Arc<Mutex<HashMap<String, ActiveJob>>>,
+    pub active_batch: Arc<Mutex<Option<ActiveBatch>>>,
     /// Session-only cache populated by `preview_subscription`. Lets
     /// `download_selected_posts` materialize full `Post` objects without a
     /// second API round-trip. Wiped on app restart — preview must be re-run.

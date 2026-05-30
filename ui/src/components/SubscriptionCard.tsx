@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { useQuery } from "@tanstack/react-query";
 import {
   Download,
   FolderOpen,
@@ -21,6 +22,13 @@ export function SubscriptionCard({ sub }: { sub: SubscriptionDto }) {
   const { t } = useTranslation();
   const remove = useRemoveSubscription();
   const [renameOpen, setRenameOpen] = useState(false);
+
+  // Disk-truth count. Re-fetches whenever lastRunAt changes (job completion
+  // bumps it via touch_last_run_at / update_after_run).
+  const { data: downloadedCount } = useQuery({
+    queryKey: ["downloadedCount", sub.id, sub.lastRunAt],
+    queryFn: () => ipc.subscriptions.countDownloaded(sub.id),
+  });
 
   const startDownload = async (incremental: boolean) => {
     try {
@@ -87,7 +95,7 @@ export function SubscriptionCard({ sub }: { sub: SubscriptionDto }) {
             <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
               <span>
                 {t("subscriptions.cardDownloaded", {
-                  count: sub.totalDownloaded,
+                  count: downloadedCount ?? 0,
                 })}
               </span>
               <span aria-hidden>·</span>

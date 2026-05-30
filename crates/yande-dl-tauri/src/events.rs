@@ -5,6 +5,8 @@ pub const EVENT_DOWNLOAD_PROGRESS: &str = "download:progress";
 pub const EVENT_DOWNLOAD_COMPLETED: &str = "download:completed";
 pub const EVENT_POSTS_DISCOVERED: &str = "download:postsDiscovered";
 pub const EVENT_POST_STATUS: &str = "download:postStatus";
+pub const EVENT_BATCH_PROGRESS: &str = "batch:progress";
+pub const EVENT_BATCH_COMPLETED: &str = "batch:completed";
 pub const EVENT_NOTIFICATION: &str = "notification";
 
 #[derive(Debug, Clone, Serialize)]
@@ -47,6 +49,24 @@ pub struct DownloadCompletedEvent {
     pub total_failed: u32,
     pub total_cancelled: u32,
     pub safe_last_post_id: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchProgressEvent {
+    pub batch_id: String,
+    pub current_index: u32,
+    pub total: u32,
+    pub current_subscription_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchCompletedEvent {
+    pub batch_id: String,
+    pub processed: u32,
+    pub total: u32,
+    pub cancelled: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

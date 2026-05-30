@@ -31,6 +31,7 @@ pub fn build_state() -> Result<AppState> {
         providers,
         http_client,
         active_jobs: Arc::new(Mutex::new(HashMap::new())),
+        active_batch: Arc::new(Mutex::new(None)),
         recent_posts: Arc::new(Mutex::new(HashMap::new())),
     })
 }

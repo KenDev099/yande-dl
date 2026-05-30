@@ -20,7 +20,6 @@ pub struct Subscription {
     pub display_name: Option<String>,
     pub last_run_at: Option<i64>,
     pub last_seen_post_id: i64,
-    pub total_downloaded: u64,
     pub created_at: i64,
 }
 
@@ -43,7 +42,6 @@ impl Subscription {
             display_name: normalize_display_name(display_name),
             last_run_at: None,
             last_seen_post_id: 0,
-            total_downloaded: 0,
             created_at: chrono::Utc::now().timestamp(),
         }
     }
@@ -85,6 +83,25 @@ pub struct ImportReport {
     pub added: usize,
     pub skipped: usize,
     pub removed: usize,
+}
+
+/// On-disk export shape. Carries only what's portable across machines —
+/// provider/tag/displayName. Internal bookkeeping (id, baseline, timestamps)
+/// is reset on import so the new device starts fresh.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportSubscription {
+    pub provider: String,
+    pub tag: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportFile {
+    pub version: u32,
+    pub subscriptions: Vec<ExportSubscription>,
 }
 
 #[derive(Debug, Clone)]
@@ -188,17 +205,13 @@ impl TagsStore {
         Ok(removed)
     }
 
-    /// Increment `total_downloaded` by `delta` without touching baseline.
-    /// Used by "download selected posts" — those downloads are non-linear
-    /// (user picks specific post_ids), so the incremental baseline must
-    /// not move (would break invariant #3).
-    pub async fn bump_downloaded_count(&self, id: &str, delta: u64) -> Result<()> {
-        if delta == 0 {
-            return Ok(());
-        }
+    /// Update `last_run_at` without touching the baseline. Used by
+    /// "download selected posts" — those downloads are non-linear (user
+    /// picks specific post_ids), so the incremental baseline must not
+    /// move (would break invariant #3).
+    pub async fn touch_last_run_at(&self, id: &str) -> Result<()> {
         let mut file = self.load().await?;
         if let Some(s) = file.subscriptions.iter_mut().find(|s| s.id == id) {
-            s.total_downloaded += delta;
             s.last_run_at = Some(chrono::Utc::now().timestamp());
             self.save(&file).await?;
         }
@@ -206,19 +219,12 @@ impl TagsStore {
     }
 
     /// Update post-run bookkeeping. `safe_last_post_id` only ever advances
-    /// (we keep `max(prev, new)`). `added_count` should be the number of
-    /// images saved in this run (skipped duplicates do not count).
-    pub async fn update_after_run(
-        &self,
-        id: &str,
-        safe_last_post_id: i64,
-        added_count: u64,
-    ) -> Result<()> {
+    /// (we keep `max(prev, new)`).
+    pub async fn update_after_run(&self, id: &str, safe_last_post_id: i64) -> Result<()> {
         let mut file = self.load().await?;
         if let Some(s) = file.subscriptions.iter_mut().find(|s| s.id == id) {
             s.last_run_at = Some(chrono::Utc::now().timestamp());
             s.last_seen_post_id = safe_last_post_id.max(s.last_seen_post_id);
-            s.total_downloaded += added_count;
             self.save(&file).await?;
         }
         Ok(())
@@ -226,23 +232,54 @@ impl TagsStore {
 
     pub async fn export_to(&self, dest: &Path) -> Result<()> {
         let file = self.load().await?;
-        atomic_write_json(dest, &file).await
+        let export = ExportFile {
+            version: 1,
+            subscriptions: file
+                .subscriptions
+                .into_iter()
+                .map(|s| ExportSubscription {
+                    provider: s.provider,
+                    tag: s.tag,
+                    display_name: s.display_name,
+                })
+                .collect(),
+        };
+        atomic_write_json(dest, &export).await
     }
 
     pub async fn import_from(&self, source: &Path, mode: ImportMode) -> Result<ImportReport> {
         let raw = tokio::fs::read_to_string(source).await?;
-        let imported: TagsFile = serde_json::from_str(&raw)?;
+        // Accept both the new compact ExportFile shape AND legacy TagsFile
+        // exports. Either way, internal bookkeeping is reset to defaults.
+        let imported: Vec<Subscription> = match serde_json::from_str::<ExportFile>(&raw) {
+            Ok(ef) => ef
+                .subscriptions
+                .into_iter()
+                .map(|e| Subscription::new_with_display_name(&e.provider, &e.tag, e.display_name))
+                .collect(),
+            Err(_) => {
+                let legacy: TagsFile = serde_json::from_str(&raw)?;
+                legacy
+                    .subscriptions
+                    .into_iter()
+                    .map(|s| {
+                        Subscription::new_with_display_name(&s.provider, &s.tag, s.display_name)
+                    })
+                    .collect()
+            }
+        };
+
         let mut current = self.load().await?;
         let mut report = ImportReport::default();
 
         match mode {
             ImportMode::Replace => {
                 report.removed = current.subscriptions.len();
-                current.subscriptions = imported.subscriptions;
+                current.subscriptions = imported;
                 report.added = current.subscriptions.len();
             }
             ImportMode::Merge => {
-                for s in imported.subscriptions {
+                for s in imported {
                     let dup = current
                         .subscriptions
                         .iter()
@@ -345,18 +382,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn update_after_run_advances_baseline_and_count() {
+    async fn update_after_run_advances_baseline() {
         let dir = TempDir::new().unwrap();
         let s = store(&dir);
 
         let sub = s.add("yande", "foo").await.unwrap();
-        s.update_after_run(&sub.id, 100, 5).await.unwrap();
-        s.update_after_run(&sub.id, 80, 2).await.unwrap(); // baseline regress; should be ignored
+        s.update_after_run(&sub.id, 100).await.unwrap();
+        s.update_after_run(&sub.id, 80).await.unwrap(); // baseline regress; should be ignored
 
         let f = s.load().await.unwrap();
         let got = &f.subscriptions[0];
         assert_eq!(got.last_seen_post_id, 100);
-        assert_eq!(got.total_downloaded, 7);
         assert!(got.last_run_at.is_some());
     }
 
@@ -460,6 +496,88 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn export_writes_minimal_fields() {
+        let dir = TempDir::new().unwrap();
+        let s = store(&dir);
+        s.add_with_display_name("yande", "cirno", Some("琪露諾".into()))
+            .await
+            .unwrap();
+        s.update_after_run(&s.load().await.unwrap().subscriptions[0].id, 999)
+            .await
+            .unwrap();
+
+        let dest = dir.path().join("export.json");
+        s.export_to(&dest).await.unwrap();
+        let raw = tokio::fs::read_to_string(&dest).await.unwrap();
+
+        // Portable fields present.
+        assert!(raw.contains("\"provider\""));
+        assert!(raw.contains("\"tag\""));
+        assert!(raw.contains("\"displayName\""));
+        // Internal bookkeeping must NOT be in the export.
+        assert!(!raw.contains("\"id\""));
+        assert!(!raw.contains("lastRunAt"));
+        assert!(!raw.contains("lastSeenPostId"));
+        assert!(!raw.contains("createdAt"));
+        assert!(!raw.contains("normalizedTag"));
+    }
+
+    #[tokio::test]
+    async fn import_legacy_format_still_works() {
+        let dir = TempDir::new().unwrap();
+        let s = store(&dir);
+
+        // A v0.1 export shape (full Subscription, with totalDownloaded etc).
+        let legacy = r#"{
+            "version": 1,
+            "subscriptions": [{
+                "id": "old-id",
+                "provider": "yande",
+                "tag": "legacy_tag",
+                "normalizedTag": "legacy_tag",
+                "lastRunAt": 1700000000,
+                "lastSeenPostId": 555,
+                "totalDownloaded": 42,
+                "createdAt": 1690000000
+            }]
+        }"#;
+        let src = dir.path().join("legacy.json");
+        tokio::fs::write(&src, legacy).await.unwrap();
+
+        let report = s.import_from(&src, ImportMode::Replace).await.unwrap();
+        assert_eq!(report.added, 1);
+
+        let f = s.load().await.unwrap();
+        let got = &f.subscriptions[0];
+        assert_eq!(got.tag, "legacy_tag");
+        // Internal state must be reset — the imported file is a portable
+        // description, not a state dump.
+        assert_ne!(got.id, "old-id");
+        assert_eq!(got.last_seen_post_id, 0);
+        assert_eq!(got.last_run_at, None);
+    }
+
+    #[tokio::test]
+    async fn import_resets_baseline_and_counters() {
+        let dir = TempDir::new().unwrap();
+        let s = store(&dir);
+
+        // Set up a subscription with a baseline, export it, wipe, re-import.
+        let sub = s.add("yande", "foo").await.unwrap();
+        s.update_after_run(&sub.id, 12345).await.unwrap();
+
+        let dest = dir.path().join("backup.json");
+        s.export_to(&dest).await.unwrap();
+        s.save(&TagsFile::default()).await.unwrap();
+        s.import_from(&dest, ImportMode::Replace).await.unwrap();
+
+        let f = s.load().await.unwrap();
+        let got = &f.subscriptions[0];
+        assert_eq!(got.last_seen_post_id, 0);
+        assert_eq!(got.last_run_at, None);
+    }
+
+    #[tokio::test]
     async fn camel_case_serialization() {
         let dir = TempDir::new().unwrap();
         let s = store(&dir);
@@ -470,7 +588,6 @@ mod tests {
         assert!(raw.contains("normalizedTag"));
         assert!(raw.contains("lastRunAt"));
         assert!(raw.contains("lastSeenPostId"));
-        assert!(raw.contains("totalDownloaded"));
         assert!(raw.contains("createdAt"));
         assert!(!raw.contains("normalized_tag"));
     }
@@ -568,30 +685,44 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bump_downloaded_count_does_not_touch_baseline() {
+    async fn touch_last_run_at_does_not_touch_baseline() {
         let dir = TempDir::new().unwrap();
         let s = store(&dir);
 
         let sub = s.add("yande", "foo").await.unwrap();
-        s.update_after_run(&sub.id, 100, 3).await.unwrap();
-        s.bump_downloaded_count(&sub.id, 4).await.unwrap();
+        s.update_after_run(&sub.id, 100).await.unwrap();
+        s.touch_last_run_at(&sub.id).await.unwrap();
 
         let f = s.load().await.unwrap();
         let got = &f.subscriptions[0];
         assert_eq!(got.last_seen_post_id, 100); // unchanged
-        assert_eq!(got.total_downloaded, 7);
         assert!(got.last_run_at.is_some());
     }
 
     #[tokio::test]
-    async fn bump_downloaded_count_zero_is_noop() {
+    async fn loads_legacy_file_with_total_downloaded_field() {
+        // Pre-rework tags.json carried `totalDownloaded`. Unknown fields must
+        // be ignored on load so users upgrading don't lose their data.
         let dir = TempDir::new().unwrap();
         let s = store(&dir);
-        let sub = s.add("yande", "foo").await.unwrap();
-        s.bump_downloaded_count(&sub.id, 0).await.unwrap();
+        let legacy = r#"{
+            "version": 1,
+            "subscriptions": [{
+                "id": "abc",
+                "provider": "yande",
+                "tag": "foo",
+                "normalizedTag": "foo",
+                "lastRunAt": null,
+                "lastSeenPostId": 42,
+                "totalDownloaded": 999,
+                "createdAt": 1700000000
+            }]
+        }"#;
+        tokio::fs::write(&s.path, legacy).await.unwrap();
+
         let f = s.load().await.unwrap();
-        assert_eq!(f.subscriptions[0].total_downloaded, 0);
-        assert!(f.subscriptions[0].last_run_at.is_none());
+        assert_eq!(f.subscriptions.len(), 1);
+        assert_eq!(f.subscriptions[0].last_seen_post_id, 42);
     }
 
     #[tokio::test]
