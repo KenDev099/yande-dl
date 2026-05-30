@@ -15,6 +15,14 @@ name: Release
 on:
   push:
     branches: [main]
+    # Doc-only pushes don't change the binaries, so skip the 4-platform build.
+    # A real release always touches non-doc files (pnpm bump edits the version
+    # files). Use the Actions "Run workflow" button (workflow_dispatch) to force a
+    # build regardless — dispatch ignores this filter.
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
   workflow_dispatch:
 
 # tauri-action / gh need write access to create the release and upload binaries.
