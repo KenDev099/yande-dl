@@ -122,18 +122,19 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: ui
 
-      # Why: tauri-action runs the CLI with cwd=projectPath (crates/yande-dl-tauri),
-      # so the config's `beforeBuildCommand: pnpm --dir ui build` would resolve to
-      # crates/yande-dl-tauri/ui (which does not exist). Override it to point at the
-      # real ui dir relative to projectPath. frontendDist (../../ui/dist) is unaffected.
-      # releaseId (no tagName) makes tauri-action upload to the pre-created draft
-      # instead of creating its own release, which avoids the parallel-create race.
+      # Why: Tauri runs beforeBuildCommand from the PARENT of the tauri.conf.json
+      # dir — i.e. `crates/` (verified from CI logs on all 3 OSes). The base config's
+      # `pnpm --dir ui build` would look for crates/ui, so override it to `../ui`
+      # (crates/ -> repo-root ui/). frontendDist (../../ui/dist, resolved relative to
+      # the config file) is unaffected. releaseId (no tagName) makes tauri-action
+      # upload to the pre-created draft instead of creating its own release, which
+      # avoids the parallel-create race.
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: crates/yande-dl-tauri
-          args: '--target ${{ matrix.target }} --config {"build":{"beforeBuildCommand":"pnpm --dir ../../ui build"}}'
+          args: '--target ${{ matrix.target }} --config {"build":{"beforeBuildCommand":"pnpm --dir ../ui build"}}'
           releaseId: ${{ needs.create-release.outputs.release_id }}
 
   publish:
