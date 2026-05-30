@@ -53,14 +53,23 @@ jobs:
         run: |
           set -euo pipefail
           tag="v$VERSION"
-          # Create the draft once. On a same-version re-push the release already
-          # exists, so we reuse it (and never un-publish a live release).
-          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            case "$VERSION" in *-*) pre=--prerelease ;; *) pre="" ;; esac
-            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --draft $pre --target "$GITHUB_SHA" \
-              --title "yande-dl $tag" --notes-file .github/RELEASE_NOTES.md
+          # Reuse an existing release for this tag if present. We match on tag_name
+          # via the list API because a DRAFT release has no git tag yet and cannot be
+          # looked up by tag (releases/tags/<tag> 404s for drafts). On a same-version
+          # re-push this reuses the live release and never un-publishes it.
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq "[.[] | select(.tag_name==\"$tag\")][0].id // empty")
+          if [ -z "$id" ]; then
+            case "$VERSION" in *-*) pre=true ;; *) pre=false ;; esac
+            id=$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
+              -f tag_name="$tag" \
+              -f target_commitish="$GITHUB_SHA" \
+              -f name="yande-dl $tag" \
+              -F draft=true \
+              -F prerelease="$pre" \
+              -f body="$(cat .github/RELEASE_NOTES.md)" \
+              --jq .id)
           fi
-          id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq .id)
           echo "release_id=$id" >> "$GITHUB_OUTPUT"
 
   build:
@@ -129,10 +138,14 @@ jobs:
 
   publish:
     name: Publish release
-    needs: [version, build]
+    needs: [create-release, build]
     runs-on: ubuntu-22.04
     steps:
+      # Publish by release id via PATCH (gh release edit looks up by tag, which a
+      # draft does not have yet). Setting draft=false publishes AND creates the
+      # v<version> git tag at the release's target commit. Runs only after every
+      # build job succeeds, so the public never sees a partial release.
       - env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.version.outputs.version }}
-        run: gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false
+          RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
+        run: gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" -F draft=false
